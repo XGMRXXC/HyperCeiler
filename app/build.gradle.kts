@@ -210,6 +210,10 @@ dependencies {
     implementation(libs.androidx.compose.animation)
     implementation(libs.miuix.compose.blur)
     implementation(libs.miuix.compose.ui)
+    implementation(libs.kotlinx.coroutines.android)
+    // 给 ComposeView 装 ViewTree owner 用（MIUIX 的 Activity 不提供）
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.savedstate.ktx)
 
     api (libs.room.runtime)
     // FTS 支持

@@ -32,6 +32,11 @@ public class SwitchManager {
     private final Context mContext;
     private final ViewGroup mParent;
     private SwitchView mSwitchView;
+    /** 液态玻璃样式的 Compose 版底栏（懒创建）。 */
+    private com.sevtinge.hyperceiler.home.widget.compose.LiquidGlassBarView mGlassBar;
+    private View mBackdropView;
+    private int mMenuRes;
+    private int mSelectedPosition = 0;
 
     private boolean isFloatingStyle;
     private OnSwitchChangeListener mUserListener;
@@ -67,16 +72,48 @@ public class SwitchManager {
         }
 
         mSwitchView.inflateMenu(menuRes);
+        mMenuRes = menuRes;
         setStyle(style);
     }
 
     /**
-     * 统一入口：切换底栏样式（三种样式都走这里）
+     * 统一入口：切换底栏样式。
+     *
+     * 液态玻璃走 Compose 版（要 miuix-blur 的折射/色散/重力高光），
+     * 另外两种样式仍用原来的 View 版。
      */
     public void setStyle(NavigationStyle style) {
         this.isFloatingStyle = style != NavigationStyle.BOTTOM_LABEL;
+        boolean liquid = style == NavigationStyle.LIQUID_GLASS;
+
+        if (liquid) {
+            ensureGlassBar();
+            mGlassBar.setVisibility(View.VISIBLE);
+            mGlassBar.setBackdropSource(mBackdropView);
+            mGlassBar.setSelectedTab(mSelectedPosition, false);
+            if (mSwitchView != null) mSwitchView.setVisibility(View.GONE);
+        } else if (mGlassBar != null) {
+            mGlassBar.setVisibility(View.GONE);
+            if (mSwitchView != null) mSwitchView.setVisibility(View.VISIBLE);
+        }
+
         if (mSwitchView != null) {
             mSwitchView.updateStyle(style);
+        }
+    }
+
+    private void ensureGlassBar() {
+        if (mGlassBar != null) return;
+        mGlassBar = new com.sevtinge.hyperceiler.home.widget.compose.LiquidGlassBarView(mContext);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        lp.gravity = Gravity.BOTTOM;
+        mParent.addView(mGlassBar, lp);
+        mGlassBar.setOnSwitchChangeListener(mUserListener);
+        if (mMenuRes != 0) {
+            mGlassBar.inflateMenu(mMenuRes);
         }
     }
 
@@ -84,8 +121,12 @@ public class SwitchManager {
      * 液态玻璃要采样的背后内容（通常是承载页面的 ViewPager）
      */
     public void setBackdropView(View view) {
+        mBackdropView = view;
         if (mSwitchView != null) {
             mSwitchView.setBackdropSource(view);
+        }
+        if (mGlassBar != null) {
+            mGlassBar.setBackdropSource(view);
         }
     }
 
@@ -100,8 +141,12 @@ public class SwitchManager {
      * 外部控制选中：按索引
      */
     public void setSelectedPosition(int position, boolean notify) {
+        mSelectedPosition = position;
         if (mSwitchView != null) {
             mSwitchView.setSelectedTab(position, notify);
+        }
+        if (mGlassBar != null) {
+            mGlassBar.setSelectedTab(position, notify);
         }
     }
 
@@ -111,7 +156,7 @@ public class SwitchManager {
     public void setSelectedItemId(int itemId, boolean notify) {
         if (mSwitchView != null) {
             int pos = mSwitchView.getPositionById(itemId);
-            if (pos != -1) mSwitchView.setSelectedTab(pos, notify);
+            if (pos != -1) setSelectedPosition(pos, notify);
         }
     }
 
@@ -122,6 +167,9 @@ public class SwitchManager {
         mUserListener = listener;
         if (mSwitchView != null) {
             mSwitchView.setOnSwitchChangeListener(listener);
+        }
+        if (mGlassBar != null) {
+            mGlassBar.setOnSwitchChangeListener(listener);
         }
     }
 
