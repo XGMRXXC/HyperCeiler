@@ -78,6 +78,22 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
         return firstVisible ?: root
     }
 
+    /**
+     * 从源视图往上找第一个带背景的祖先。
+     *
+     * 设置页/关于页是"页面背景 + 卡片"两层：只画页面的某个具体视图会丢掉卡片外面的背景，
+     * 只画 pager/窗口又会把底栏自己画进去（自我反馈，就是残影的来源）。页面背景挂在
+     * 底栏的**兄弟**节点（容器）上，沿 parent 往上找就能拿到，且不会包含底栏。
+     */
+    private fun findBackgroundOwner(root: View): View? {
+        var parent: android.view.ViewParent? = root.parent
+        while (parent is View) {
+            if (parent.background != null && parent.width > 0 && parent.height > 0) return parent
+            parent = parent.parent
+        }
+        return null
+    }
+
     override fun DrawScope.drawBackdrop(
         density: Density,
         coordinates: LayoutCoordinates?,
@@ -124,11 +140,31 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
         }
 
         val sourcePosition = IntArray(2).also(target::getLocationInWindow)
+        val backgroundOwner = findBackgroundOwner(sourceView)
         val canvas = drawContext.canvas.nativeCanvas
         canvas.save()
         try {
             val scale = 1f / downscaleFactor.coerceAtLeast(1)
             canvas.scale(scale, scale)
+
+            // 先铺页面背景，再画当前页内容：设置/关于页的卡片之外是这层背景，
+            // 只画页面内容会缺一块（卡片视图在卡片外是透明的）。
+            val background = backgroundOwner?.background
+            if (backgroundOwner != null && background != null) {
+                val ownerPosition = IntArray(2).also(backgroundOwner::getLocationInWindow)
+                canvas.save()
+                canvas.translate(
+                    ownerPosition[0] - surfacePosition.x,
+                    ownerPosition[1] - surfacePosition.y
+                )
+                // 先存下原 bounds：这是视图自己的 drawable，画完要还回去
+                val original = android.graphics.Rect(background.bounds)
+                background.setBounds(0, 0, backgroundOwner.width, backgroundOwner.height)
+                background.draw(canvas)
+                background.setBounds(original)
+                canvas.restore()
+            }
+
             canvas.translate(
                 sourcePosition[0] - surfacePosition.x,
                 sourcePosition[1] - surfacePosition.y
