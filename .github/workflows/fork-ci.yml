@@ -78,20 +78,15 @@ jobs:
           path: app/build/outputs/apk/canary/*.apk
           compression-level: 9
 
-      # One rolling release, updated in place on every dev push. It is published
-      # as a normal release (not a pre-release), so it shows up on the repo's
-      # Releases page as the latest one.
+      # Every build gets its own release, and old ones are never touched, so the
+      # Releases page keeps a full history of canary APKs.
       #
-      # GitHub requires every release to be anchored to a tag, so "no tags" here
-      # means: always reuse this one fixed tag and never create a new tag per
-      # build. The download URL therefore stays reachable, but note that the
-      # asset name itself carries the version, so that URL changes per build.
-      - name: Publish to the canary release
+      # GitHub requires a release to be anchored to a tag, so each build gets a
+      # tag named after the build itself (canary-<versionName>-r<versionCode>).
+      # Nothing in the source tree is tagged and no version tags are created.
+      - name: Publish a canary release
         env:
           GH_TOKEN: ${{ github.token }}
-          # Anchor of the rolling release. GitHub has no tag-less releases, so
-          # this single fixed tag is created once and then reused forever.
-          TAG: dev-build
         run: |
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/canary/*.apk | head -n1)
@@ -100,26 +95,21 @@ jobs:
           #              -> HyperCeiler-canary-<versionName>-r<versionCode>.apk
           VER=$(printf '%s' "$NAME" | sed -E 's/^HyperCeiler-(.+)-[0-9a-f]+-r([0-9]+)-canary\.apk$/\1-r\2/')
           ASSET="HyperCeiler-canary-${VER}.apk"
+          TAG="canary-${VER}"
           SHA=$(shasum -a 256 "$APK" | awk '{print $1}')
           NOTES=$(printf 'Automated canary build.\n\n- commit: `%s`\n- APK: `%s`\n- sha256: `%s`\n\nDebug-signed; uninstall the official build before installing.\n' "$GITHUB_SHA" "$ASSET" "$SHA")
           cp "$APK" "$ASSET"
           # Ask the API instead of `gh release view`: gh also looks at local tags,
           # which actions/checkout may have left behind from an earlier release.
           if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --prerelease=false --latest \
-              --title "HyperCeiler canary ${VER}" --notes "$NOTES"
-            # Every build has its own asset name, so --clobber alone would let
-            # old APKs pile up on the release; keep only the newest one.
-            for old in $(gh release view "$TAG" --json assets -q '.assets[].name'); do
-              [ "$old" = "$ASSET" ] || gh release delete-asset "$TAG" "$old" --yes
-            done
+            # Same commit rebuilt (a re-run): refresh that release in place.
+            gh release upload "$TAG" "$ASSET" --clobber
           else
             # A stale local tag makes `gh release create` refuse with "tag exists
             # locally but has not been pushed", so drop it and let gh recreate it
             # at the commit that was just built.
             git tag -d "$TAG" >/dev/null 2>&1 || true
             gh release create "$TAG" --target "$GITHUB_SHA" --latest \
-              --title "HyperCeiler canary ${VER}" --notes "$NOTES"
+              --title "HyperCeiler canary ${VER}" --notes "$NOTES" "$ASSET"
           fi
-          gh release upload "$TAG" "$ASSET" --clobber
           echo "release: $(gh release view "$TAG" --json url -q .url)"
