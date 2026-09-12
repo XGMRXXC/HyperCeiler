@@ -14,8 +14,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.CountDownTimer;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -40,6 +42,7 @@ import com.sevtinge.hyperceiler.home.task.AppInitializer;
 import com.sevtinge.hyperceiler.home.widget.NavigationStyle;
 import com.sevtinge.hyperceiler.home.widget.SwitchManager;
 import com.sevtinge.hyperceiler.home.widget.SwitchMediator;
+import com.sevtinge.hyperceiler.home.widget.compose.LiquidTopBarView;
 import com.sevtinge.hyperceiler.provision.utils.NoticeProvider;
 import com.sevtinge.hyperceiler.provision.utils.ProvisionManager;
 import com.sevtinge.hyperceiler.settings.SettingsFragment;
@@ -54,6 +57,7 @@ import fan.appcompat.app.AlertDialog;
 import fan.appcompat.app.AppCompatActivity;
 import java.util.ArrayDeque;
 
+import fan.appcompat.app.ActionBar;
 import fan.preference.PreferenceFragment;
 import fan.provider.Settings;
 import fan.provision.OobeUtils;
@@ -65,6 +69,8 @@ public class HomePageActivity extends AppCompatActivity
     PreferenceFragment.OnPreferenceStartFragmentCallback {
 
     private static final String STATE_CURRENT_PAGE = "home_current_page";
+
+    private LiquidTopBarView mTopBar;
 
     public ViewPager mViewPager;
     public HomeContentAdapter mContentAdapter;
@@ -123,6 +129,41 @@ public class HomePageActivity extends AppCompatActivity
         // 液态玻璃底栏要采样"当前页"的内容，等布局完成后再解析一次
         mViewPager.post(this::updateBackdropSource);
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
+        setupLiquidTopBar();
+    }
+
+    /**
+     * OS4 风格的顶部背景模糊带：设置页的 ActionBar 是透明的，所以在它下面放一条
+     * 玻璃模糊带，滚动时内容就会在模糊里经过。带子只画不接收触摸。
+     */
+    private void setupLiquidTopBar() {
+        ViewGroup container = findViewById(R.id.container);
+        if (container == null) return;
+        mTopBar = new LiquidTopBarView(this);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.gravity = Gravity.TOP;
+        container.addView(mTopBar, params);
+        mTopBar.setBackdropSource(mViewPager);
+        mTopBar.post(() -> {
+            // 只覆盖收窄后的栏区域（状态栏 + 56dp），大标题那一段不需要模糊
+            int height = getStatusBarHeight()
+                + (int) (56 * getResources().getDisplayMetrics().density);
+            ViewGroup.LayoutParams lp = mTopBar.getLayoutParams();
+            lp.height = height;
+            mTopBar.setLayoutParams(lp);
+        });
+    }
+
+    private int getStatusBarHeight() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    }
+
+    private void updateTopBarVisibility(int position) {
+        if (mTopBar != null) {
+            mTopBar.setStripVisible(position == 1);
+        }
     }
 
     /**
@@ -192,6 +233,7 @@ public class HomePageActivity extends AppCompatActivity
         public void onPageSelected(int position) {
             super.onPageSelected(position);
             mSwitchManager.setSelectedPosition(position, true);
+            updateTopBarVisibility(position);
             // 换页后重新解析采样源，否则玻璃还是上一页的内容
             if (mViewPager != null) {
                 mViewPager.post(HomePageActivity.this::updateBackdropSource);
