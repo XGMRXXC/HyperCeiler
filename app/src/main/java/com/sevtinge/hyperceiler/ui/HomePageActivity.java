@@ -42,6 +42,7 @@ import com.sevtinge.hyperceiler.home.task.AppInitializer;
 import com.sevtinge.hyperceiler.home.widget.NavigationStyle;
 import com.sevtinge.hyperceiler.home.widget.SwitchManager;
 import com.sevtinge.hyperceiler.home.widget.SwitchMediator;
+import com.sevtinge.hyperceiler.home.widget.compose.LiquidBackButtonView;
 import com.sevtinge.hyperceiler.home.widget.compose.LiquidTopBarView;
 import com.sevtinge.hyperceiler.provision.utils.NoticeProvider;
 import com.sevtinge.hyperceiler.provision.utils.ProvisionManager;
@@ -70,6 +71,7 @@ public class HomePageActivity extends AppCompatActivity
 
     private static final String STATE_CURRENT_PAGE = "home_current_page";
 
+    private LiquidBackButtonView mBackButton;
     private LiquidTopBarView mTopBar;
 
     public ViewPager mViewPager;
@@ -130,6 +132,7 @@ public class HomePageActivity extends AppCompatActivity
         mViewPager.post(this::updateBackdropSource);
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
         setupLiquidTopBar();
+        setupLiquidBackButton();
     }
 
     /**
@@ -158,6 +161,58 @@ public class HomePageActivity extends AppCompatActivity
     private int getStatusBarHeight() {
         int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
         return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    }
+
+    /**
+     * OS4 的"下滑后独立返回键"：悬浮玻璃圆钮，页面下滑后淡入。
+     *
+     * 滚动量从当前页面的滚动容器实时取（computeVerticalScrollOffset，
+     * RecyclerView 和 NestedScrollView 都实现了），因此对所有页面通用。
+     */
+    private void setupLiquidBackButton() {
+        ViewGroup container = findViewById(R.id.container);
+        if (container == null) return;
+        float density = getResources().getDisplayMetrics().density;
+        mBackButton = new LiquidBackButtonView(this);
+        int size = (int) (LiquidBackButtonView.BUTTON_SIZE_DP * density);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(size, size);
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.leftMargin = (int) (12 * density);
+        params.topMargin = getStatusBarHeight() + (int) (6 * density);
+        container.addView(mBackButton, params);
+        mBackButton.setBackdropSource(mViewPager);
+
+        int threshold = (int) (24 * density);
+        container.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            if (mBackButton == null) return;
+            int offset = maxScrollOffset(container);
+            // "能返回"的权威判据：有回退栈，或当前标签不是主页，或有人接管了返回
+            boolean hasBack = mViewPager != null && mViewPager.getCurrentItem() != 0
+                || getSupportFragmentManager().getBackStackEntryCount() > 0
+                || getOnBackPressedDispatcher().hasEnabledCallbacks();
+            mBackButton.setButtonVisible(offset > threshold && hasBack);
+        });
+    }
+
+    /** 取视图树里最大的纵向滚动量。 */
+    private int maxScrollOffset(View view) {
+        if (!(view instanceof ViewGroup)) {
+            return view.getScrollY();
+        }
+        ViewGroup group = (ViewGroup) view;
+        int max = view.getScrollY();
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE) continue;
+            max = Math.max(max, maxScrollOffset(child));
+        }
+        // RecyclerView 这类靠移动子视图滚动，scrollY 恒为 0，
+        // 第一个子视图相对内容顶部的偏移就是滚动量（只用公开 API）
+        if (group.getChildCount() > 0) {
+            View first = group.getChildAt(0);
+            max = Math.max(max, group.getPaddingTop() - first.getTop());
+        }
+        return max;
     }
 
     private void updateTopBarVisibility(int position) {
