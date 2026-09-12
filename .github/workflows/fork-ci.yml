@@ -19,9 +19,11 @@
 
 name: Fork CI
 
-# The build only reads the repository; it never needs to write anything back.
+# The build only reads the repository; publishing the canary release needs to
+# write releases, so contents: write is required. This uses the automatic
+# GITHUB_TOKEN of the run, never a personal access token.
 permissions:
-  contents: read
+  contents: write
 
 on:
   push:
@@ -75,3 +77,24 @@ jobs:
           name: HyperCeiler-dev-canary
           path: app/build/outputs/apk/canary/*.apk
           compression-level: 9
+
+      # Rolling prerelease tagged `dev-build`: the download URL never changes.
+      # The asset is renamed to a fixed name so --clobber replaces it instead of
+      # accumulating one asset per build.
+      - name: Publish to dev-build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/canary/*.apk | head -n1)
+          NAME=$(basename "$APK")
+          SHA=$(shasum -a 256 "$APK" | awk '{print $1}')
+          NOTES=$(printf 'Automated canary build.\n\n- commit: `%s`\n- APK: `%s`\n- sha256: `%s`\n\nDebug-signed; uninstall the official build before installing.\n' "$GITHUB_SHA" "$NAME" "$SHA")
+          cp "$APK" HyperCeiler-dev-canary.apk
+          if gh release view dev-build >/dev/null 2>&1; then
+            gh release edit dev-build --notes "$NOTES"
+          else
+            gh release create dev-build --prerelease --title "Dev build (canary)" --notes "$NOTES"
+          fi
+          gh release upload dev-build HyperCeiler-dev-canary.apk --clobber
+          echo "release: $(gh release view dev-build --json url -q .url)"
