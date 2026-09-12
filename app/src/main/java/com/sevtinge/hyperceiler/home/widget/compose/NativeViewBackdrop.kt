@@ -62,7 +62,7 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
     private var lastCaptureAt = 0L
 
     /** 软件抓整屏很贵，滚动时按最小间隔节流。 */
-    private val minIntervalMs = 40L
+    private val minIntervalMs = 70L
 
     /** 版本号变化时重新抓一帧（调用方在 backdrop 绘制前带上当前版本）。 */
     fun record(version: Int) {

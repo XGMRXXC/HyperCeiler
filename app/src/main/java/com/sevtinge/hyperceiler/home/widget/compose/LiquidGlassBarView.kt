@@ -87,9 +87,10 @@ class LiquidGlassBarView @JvmOverloads constructor(
     private var preDrawSource: View? = null
     private val composeOwner = ComposeViewOwner()
     private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
-        if (preDrawSource?.isDirty == true) {
-            backdropVersion.intValue++
-        }
+        // 不能靠 View.isDirty 判断：真机上它基本一直是 false，快照就永远不更新
+        // （现象：主页滑动玻璃不跟、切到设置/关于页还是旧背景）。这里无条件递增，
+        // 真正的时间节流交给 NativeViewBackdrop.record()。
+        backdropVersion.intValue++
         true
     }
 
