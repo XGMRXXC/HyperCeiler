@@ -161,8 +161,10 @@ public class HomePageActivity extends AppCompatActivity
     }
 
     private void updateTopBarVisibility(int position) {
+        // 常驻显示：顶栏本身不透明时它自然被挡住，透明顶栏（设置页、二级页面）才会透出来，
+        // 因此不需要按页码判断。
         if (mTopBar != null) {
-            mTopBar.setStripVisible(position == 1);
+            mTopBar.setStripVisible(true);
         }
     }
 
