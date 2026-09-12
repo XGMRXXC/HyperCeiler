@@ -57,9 +57,6 @@ public class Application extends fan.app.Application
     @Override
     public void onCreate() {
         super.onCreate();
-        // 二级页面的 OS4 装饰（顶栏模糊 + 下滑后独立返回键）。
-        // 在这里注册：它只作用于二级页面（SubSettings），三个主页标签完全不受影响。
-        com.sevtinge.hyperceiler.home.widget.compose.Os4SecondaryDecor.install();
         // 应用启动阶段，预热非 UI 任务（如 Shell、语言包、权限检查）
         AppInitializer.initOnAppCreate(this);
         OobeUtils.syncHookAvailability(this);
