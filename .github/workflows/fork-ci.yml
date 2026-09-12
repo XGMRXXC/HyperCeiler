@@ -89,6 +89,9 @@ jobs:
       - name: Publish to the canary release
         env:
           GH_TOKEN: ${{ github.token }}
+          # Anchor of the rolling release. GitHub has no tag-less releases, so
+          # this single fixed tag is created once and then reused forever.
+          TAG: dev-build
         run: |
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/canary/*.apk | head -n1)
@@ -100,17 +103,23 @@ jobs:
           SHA=$(shasum -a 256 "$APK" | awk '{print $1}')
           NOTES=$(printf 'Automated canary build.\n\n- commit: `%s`\n- APK: `%s`\n- sha256: `%s`\n\nDebug-signed; uninstall the official build before installing.\n' "$GITHUB_SHA" "$ASSET" "$SHA")
           cp "$APK" "$ASSET"
-          if gh release view dev-build >/dev/null 2>&1; then
-            gh release edit dev-build --prerelease=false --latest \
+          # Ask the API instead of `gh release view`: gh also looks at local tags,
+          # which actions/checkout may have left behind from an earlier release.
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --prerelease=false --latest \
               --title "HyperCeiler canary ${VER}" --notes "$NOTES"
             # Every build has its own asset name, so --clobber alone would let
             # old APKs pile up on the release; keep only the newest one.
-            for old in $(gh release view dev-build --json assets -q '.assets[].name'); do
-              [ "$old" = "$ASSET" ] || gh release delete-asset dev-build "$old" --yes
+            for old in $(gh release view "$TAG" --json assets -q '.assets[].name'); do
+              [ "$old" = "$ASSET" ] || gh release delete-asset "$TAG" "$old" --yes
             done
           else
-            gh release create dev-build --latest \
+            # A stale local tag makes `gh release create` refuse with "tag exists
+            # locally but has not been pushed", so drop it and let gh recreate it
+            # at the commit that was just built.
+            git tag -d "$TAG" >/dev/null 2>&1 || true
+            gh release create "$TAG" --target "$GITHUB_SHA" --latest \
               --title "HyperCeiler canary ${VER}" --notes "$NOTES"
           fi
-          gh release upload dev-build "$ASSET" --clobber
-          echo "release: $(gh release view dev-build --json url -q .url)"
+          gh release upload "$TAG" "$ASSET" --clobber
+          echo "release: $(gh release view "$TAG" --json url -q .url)"
