@@ -42,6 +42,14 @@ import top.yukonga.miuix.kmp.blur.Backdrop
  */
 class NativeViewBackdrop(private val sourceView: View) : Backdrop {
 
+    companion object {
+        /** 调试：把抓到的快照写到外部缓存，用 adb pull 出来核对。 */
+        private const val DEBUG_DUMP = false
+    }
+
+    private var dumped = false
+    private var loggedOnce = false
+
     override val isCoordinatesDependent: Boolean = true
 
     /** 快照降采样倍率：整屏 ARGB 太大，减半后再由模糊盖过去，肉眼无差。 */
@@ -84,6 +92,16 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
         } finally {
             canvas.restoreToCount(checkpoint)
         }
+
+        if (DEBUG_DUMP && !dumped) {
+            dumped = true
+            runCatching {
+                val dir = sourceView.context.getExternalCacheDir() ?: return@runCatching
+                val out = java.io.File(dir, "backdrop.png")
+                java.io.FileOutputStream(out).use { bitmap?.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                android.util.Log.w("NativeViewBackdrop", "dumped to ${out.absolutePath}")
+            }
+        }
     }
 
     override fun DrawScope.drawBackdrop(
@@ -92,7 +110,19 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
         layerBlock: (GraphicsLayerScope.() -> Unit)?,
         downscaleFactor: Int
     ) {
-        val snapshot = bitmap ?: return
+        val snapshot = bitmap
+        if (!loggedOnce) {
+            loggedOnce = true
+            android.util.Log.w(
+                "NativeViewBackdrop",
+                "drawBackdrop: snapshot=" + (snapshot != null) +
+                    " size=" + (snapshot?.width ?: 0) + "x" + (snapshot?.height ?: 0) +
+                    " coord=" + (coordinates != null) +
+                    " attached=" + sourceView.isAttachedToWindow +
+                    " factor=" + downscaleFactor
+            )
+        }
+        if (snapshot == null) return
         val consumer = coordinates ?: return
         if (!sourceView.isAttachedToWindow) return
 
@@ -103,12 +133,15 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
         val checkpoint = native.save()
         try {
             val scale = 1f / downscaleFactor.coerceAtLeast(1)
+            // 之后所有坐标都按"内容坐标"（像素）来算
             native.scale(scale, scale)
+            // 关键：偏移是 src - consumer。写成 consumer - src 会把快照画到屏幕外，
+            // 药丸里就只剩容器底色（看起来就是黑底）
             native.translate(
-                consumerInWindow.x - sourceInWindow[0],
-                consumerInWindow.y - sourceInWindow[1]
+                (sourceInWindow[0] - consumerInWindow.x),
+                (sourceInWindow[1] - consumerInWindow.y)
             )
-            // 快照本身是 captureScale 倍，这里放大回 1:1
+            // 快照是 captureScale 倍，放大回内容坐标
             native.scale(1f / captureScale, 1f / captureScale)
             native.drawBitmap(snapshot, 0f, 0f, paint)
         } finally {
