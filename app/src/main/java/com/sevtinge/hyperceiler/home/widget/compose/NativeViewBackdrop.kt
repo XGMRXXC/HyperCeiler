@@ -35,6 +35,9 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
     private companion object {
         /** 调试：把"抓到的源视图"另存到外部缓存，用 adb pull 核对抓的是哪一页。 */
         const val DEBUG_DUMP = false
+
+        /** 调试：把采样倍率/源视图打到 logcat（Kotlin tag 不会被 LSParanoid 混淆）。 */
+        const val DEBUG_LOG = false
     }
 
     override val isCoordinatesDependent: Boolean = true
@@ -109,6 +112,16 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
 
         // 每次都从源视图里解出"当前显示的那一页"，避免采到别的页
         val target = resolveCurrentPage(sourceView)
+
+        if (DEBUG_LOG && dumpTick++ % 60 == 0) {
+            // Kotlin 侧日志不受 LSParanoid 混淆，可直接在 logcat 看
+            android.util.Log.w(
+                "NativeViewBackdrop",
+                "factor=" + downscaleFactor +
+                    " source=" + sourceView.javaClass.simpleName +
+                    " target=" + target.javaClass.simpleName
+            )
+        }
 
         val sourcePosition = IntArray(2).also(target::getLocationInWindow)
         val canvas = drawContext.canvas.nativeCanvas

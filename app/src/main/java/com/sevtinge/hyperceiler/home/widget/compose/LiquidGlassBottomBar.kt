@@ -360,7 +360,10 @@ fun FloatingBottomBar(
                             effects = {
                                 padding = maxOf(padding, 40.dp.toPx())
                                 vibrancy()
-                                blur(4.dp.toPx(), 4.dp.toPx())
+                                // 半径决定降采样倍率（downScaleExpFor），4dp 时会降到 1/4 面积录制。
+                                // 调到 2dp 让 miuix-blur 走更高分辨率的采样路径，玻璃里的内容更清晰；
+                                // 让框架自己算倍率，透镜/模糊的像素级参数才保持一致。
+                                blur(2.dp.toPx(), 2.dp.toPx())
                                 lens(
                                     refractionHeight = 24.dp.toPx(),
                                     refractionAmount = 24.dp.toPx(),
@@ -412,7 +415,8 @@ fun FloatingBottomBar(
                             shape = { pillShape },
                             effects = {
                                 vibrancy()
-                                blur(4.dp.toPx(), 4.dp.toPx())
+                                // 与药丸那一路保持一致：4dp 会让 miuix-blur 降到 factor=2 录制
+                                blur(2.dp.toPx(), 2.dp.toPx())
                                 lens(
                                     refractionHeight = 24.dp.toPx(),
                                     refractionAmount = 24.dp.toPx(),
