@@ -7,15 +7,18 @@
 #   * its "Create Sign File" step needs the maintainer's keystore secrets
 #     (KEY_STORE_PASSWORD / ALIAS / SIGNING_KEY), which a fork does not have.
 #     With them empty it still creates signing.properties, and the build then
-#     dies with "Cannot convert '' to File" -- a fork must NOT create that file
-#     so the build falls back to debug signing.
+#     dies with "Cannot convert '' to File".
 #
-# So this workflow only injects the two secrets needed to fetch the private
-# fan.miuix / hyperceiler-expansion packages.
+# So this workflow injects the two secrets needed to fetch the private
+# fan.miuix / hyperceiler-expansion packages, and creates signing.properties from
+# the fork's own keystore secrets when those are configured.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   GIT_ACTOR : your GitHub username
 #   GIT_TOKEN : a token with read:packages
+#   FORK_KEYSTORE_BASE64   : base64 of the fork's keystore (optional)
+#   FORK_KEYSTORE_PASSWORD : that keystore's password (optional)
+#   FORK_KEY_ALIAS         : that keystore's key alias (optional)
 
 name: Fork CI
 
@@ -60,6 +63,40 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # A fork has no access to the maintainer's keystore secrets, and without
+      # signing.properties the build falls back to debug signing -- where AGP
+      # generates a fresh debug key on every runner, so each CI build came out with
+      # a different signature and installing over the previous one needed the
+      # signature check bypassed. Decoding our own keystore from a secret keeps one
+      # signature for every build.
+      #
+      # Required repository secrets (Settings -> Secrets and variables -> Actions):
+      #   FORK_KEYSTORE_BASE64   : base64 of the keystore file
+      #   FORK_KEYSTORE_PASSWORD : its password (used for store and key)
+      #   FORK_KEY_ALIAS         : the key alias, e.g. fork
+      # Without FORK_KEYSTORE_BASE64 this step does nothing and the build falls back
+      # to debug signing, so the workflow still works before they are configured.
+      - name: Create Sign File
+        env:
+          FORK_KEYSTORE_BASE64: ${{ secrets.FORK_KEYSTORE_BASE64 }}
+          FORK_KEYSTORE_PASSWORD: ${{ secrets.FORK_KEYSTORE_PASSWORD }}
+          FORK_KEY_ALIAS: ${{ secrets.FORK_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FORK_KEYSTORE_BASE64:-}" ]; then
+            echo "FORK_KEYSTORE_BASE64 is not set; falling back to debug signing."
+            exit 0
+          fi
+          KEYSTORE="${RUNNER_TEMP}/fork.jks"
+          printf '%s' "${FORK_KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE}"
+          cat > signing.properties <<EOF
+          storeFile=${KEYSTORE}
+          storePassword=${FORK_KEYSTORE_PASSWORD}
+          keyAlias=${FORK_KEY_ALIAS}
+          keyPassword=${FORK_KEYSTORE_PASSWORD}
+          EOF
+          echo "signing.properties created (alias ${FORK_KEY_ALIAS})"
+
       - name: Build canary
         env:
           GIT_ACTOR: ${{ secrets.GIT_ACTOR }}
@@ -97,7 +134,7 @@ jobs:
           ASSET="HyperCeiler-canary-${VER}.apk"
           TAG="canary-${VER}"
           SHA=$(shasum -a 256 "$APK" | awk '{print $1}')
-          NOTES=$(printf 'Automated canary build.\n\n- commit: `%s`\n- APK: `%s`\n- sha256: `%s`\n\nDebug-signed; uninstall the official build before installing.\n' "$GITHUB_SHA" "$ASSET" "$SHA")
+          NOTES=$(printf 'Automated canary build.\n\n- commit: `%s`\n- APK: `%s`\n- sha256: `%s`\n' "$GITHUB_SHA" "$ASSET" "$SHA")
           cp "$APK" "$ASSET"
           # Ask the API instead of `gh release view`: gh also looks at local tags,
           # which actions/checkout may have left behind from an earlier release.
