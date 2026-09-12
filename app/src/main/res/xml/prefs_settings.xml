@@ -24,10 +24,13 @@
             android:key="prefs_key_settings_hide_app_icon"
             android:title="@string/settings_hide_app_icon" />
 
-        <SwitchPreference
-            android:defaultValue="false"
-            android:key="prefs_key_settings_float_nav"
-            android:title="@string/settings_float_nav" />
+        <fan.preference.DropDownPreference
+            android:defaultValue="0"
+            android:key="prefs_key_settings_nav_style"
+            android:summary="@string/settings_nav_style_desc"
+            android:title="@string/settings_nav_style"
+            app:entries="@array/settings_nav_style"
+            app:entryValues="@array/settings_nav_style_value" />
 
         <fan.preference.DropDownPreference
             android:defaultValue="0"

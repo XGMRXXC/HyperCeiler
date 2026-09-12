@@ -44,9 +44,11 @@ import com.sevtinge.hyperceiler.common.utils.PermissionUtils;
 import com.sevtinge.hyperceiler.common.utils.PrefsBridge;
 import com.sevtinge.hyperceiler.common.utils.api.ProjectApi;
 import com.sevtinge.hyperceiler.home.utils.HeaderManager;
+import com.sevtinge.hyperceiler.home.widget.NavigationStyle;
 import com.sevtinge.hyperceiler.libhook.utils.api.BackupUtils;
 import com.sevtinge.hyperceiler.search.SearchHelper;
 import com.sevtinge.hyperceiler.sub.ScopePickerActivity;
+import com.sevtinge.hyperceiler.ui.HomePageActivity;
 import com.sevtinge.hyperceiler.ui.LauncherActivity;
 import com.sevtinge.hyperceiler.ui.SplashActivity;
 import com.sevtinge.hyperceiler.utils.DialogHelper;
@@ -68,7 +70,7 @@ import fan.provision.OobeUtils;
 public class SettingsFragment extends BasePreferenceFragment
     implements Preference.OnPreferenceClickListener, Preference.OnPreferenceChangeListener {
 
-    SwitchPreference mFloatBottomPreference;
+    DropDownPreference mNavStylePreference;
     DropDownPreference mIconModePreference;
     DropDownPreference mIconModeValue;
     SwitchPreference mHideAppIcon;
@@ -107,6 +109,17 @@ public class SettingsFragment extends BasePreferenceFragment
         }
     );
 
+    /**
+     * 底栏就在同一个 Activity 的 ViewPager 里，改完直接让它换样式，
+     * 这样「悬浮胶囊 ↔ 液态玻璃」这种不动悬浮开关的切换也能立刻生效。
+     */
+    private void applyNavStyle(int index) {
+        if (getActivity() instanceof HomePageActivity homePageActivity
+            && homePageActivity.mSwitchManager != null) {
+            homePageActivity.mSwitchManager.setStyle(NavigationStyle.fromIndex(index));
+        }
+    }
+
     @Override
     public int getPreferenceScreenResId() {
         return R.xml.prefs_settings;
@@ -118,14 +131,14 @@ public class SettingsFragment extends BasePreferenceFragment
         int iconModeStyle = AppSettingsStore.getIconModeIndex(requireContext());
         int languageIndex = LanguageHelper.getCurrentLanguageIndex(requireContext());
         boolean hideAppIconEnabled = AppSettingsStore.isHideAppIconEnabled(requireContext());
-        boolean isFloating = AppSettingsStore.isFloatNavEnabled(requireContext());
+        int navStyleIndex = AppSettingsStore.getNavStyleIndex(requireContext());
         boolean scopeSyncEnabled = AppSettingsStore.isScopeSyncEnabled(requireContext());
 
         mIconModePreference = findPreference("prefs_key_settings_icon");
         mIconModeValue = findPreference("prefs_key_settings_icon_mode");
         mLanguage = findPreference("prefs_key_settings_app_language");
         mHideAppIcon = findPreference("prefs_key_settings_hide_app_icon");
-        mFloatBottomPreference = findPreference("prefs_key_settings_float_nav");
+        mNavStylePreference = findPreference("prefs_key_settings_nav_style");
         mLogLevel = findPreference("prefs_key_log_level_v2");
         mScopeSyncPreference = findPreference("prefs_key_settings_scope_sync");
         mScopePreference = findPreference("prefs_key_settings_scope");
@@ -135,8 +148,8 @@ public class SettingsFragment extends BasePreferenceFragment
         if (mHideAppIcon != null) {
             mHideAppIcon.setPersistent(false);
         }
-        if (mFloatBottomPreference != null) {
-            mFloatBottomPreference.setPersistent(false);
+        if (mNavStylePreference != null) {
+            mNavStylePreference.setPersistent(false);
         }
         if (mScopeSyncPreference != null) {
             mScopeSyncPreference.setPersistent(false);
@@ -156,8 +169,8 @@ public class SettingsFragment extends BasePreferenceFragment
         if (mHideAppIcon != null) {
             mHideAppIcon.setChecked(hideAppIconEnabled);
         }
-        if (mFloatBottomPreference != null) {
-            mFloatBottomPreference.setChecked(isFloating);
+        if (mNavStylePreference != null) {
+            mNavStylePreference.setValueIndex(navStyleIndex);
         }
         if (mScopeSyncPreference != null) {
             mScopeSyncPreference.setChecked(scopeSyncEnabled);
@@ -209,11 +222,14 @@ public class SettingsFragment extends BasePreferenceFragment
             });
         }
 
-        mFloatBottomPreference.setOnPreferenceChangeListener((preference, newValue) -> {
-            boolean enabled = Boolean.TRUE.equals(newValue);
-            AppSettingsStore.setFloatNavEnabled(requireContext(), enabled);
-            return true;
-        });
+        if (mNavStylePreference != null) {
+            mNavStylePreference.setOnPreferenceChangeListener((preference, newValue) -> {
+                int index = Integer.parseInt((String) newValue);
+                AppSettingsStore.setNavStyleIndex(requireContext(), index);
+                applyNavStyle(index);
+                return true;
+            });
+        }
 
         if (mScopeSyncPreference != null) {
             updateScopePreferenceTitle(scopeSyncEnabled);

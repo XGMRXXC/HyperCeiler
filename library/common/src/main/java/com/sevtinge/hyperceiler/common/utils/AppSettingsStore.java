@@ -34,6 +34,10 @@ public final class AppSettingsStore {
     public static final String PREF_ICON_MODE = "prefs_key_settings_icon_mode";
     public static final String PREF_APP_LANGUAGE = "prefs_key_settings_app_language";
 
+    /** 底栏样式（新增）：0 贴地标签、1 悬浮胶囊、2 液态玻璃。 */
+    public static final String KEY_NAV_STYLE = "settings_nav_style";
+    public static final String PREF_NAV_STYLE = "prefs_key_settings_nav_style";
+
     private AppSettingsStore() {
     }
 
@@ -51,6 +55,32 @@ public final class AppSettingsStore {
 
     public static void setFloatNavEnabled(@Nullable Context context, boolean enabled) {
         putBoolean(context, KEY_FLOAT_NAV, PREF_FLOAT_NAV, enabled);
+    }
+
+    /**
+     * 底栏样式：0 = 贴地标签底栏，1 = 悬浮胶囊底栏，2 = 液态玻璃悬浮底栏（新增）。
+     *
+     * 读不到这个键时（老版本升级上来）用旧的 {@link #isFloatNavEnabled} 布尔值推断，
+     * 保证升级后看到的还是原来那个底栏。
+     */
+    public static int getNavStyleIndex(@Nullable Context context) {
+        String raw = getGlobalString(context, KEY_NAV_STYLE);
+        if (!TextUtils.isEmpty(raw)) {
+            try {
+                return Integer.parseInt(raw);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        int fallback = isFloatNavEnabled(context) ? 1 : 0;
+        putGlobalString(context, KEY_NAV_STYLE, Integer.toString(fallback));
+        return fallback;
+    }
+
+    public static void setNavStyleIndex(@Nullable Context context, int index) {
+        putInt(context, KEY_NAV_STYLE, PREF_NAV_STYLE, index);
+        // 两种悬浮样式都要让旧的布尔键保持同步（Hook / 备份链路仍然读它）
+        setFloatNavEnabled(context, index != 0);
     }
 
     public static boolean isScopeSyncEnabled(@Nullable Context context) {
@@ -118,6 +148,7 @@ public final class AppSettingsStore {
         syncIntIfPresent(context, allPrefs, PREF_ICON, KEY_ICON, 0);
         syncIntIfPresent(context, allPrefs, PREF_ICON_MODE, KEY_ICON_MODE, 0);
         syncIntIfPresent(context, allPrefs, PREF_APP_LANGUAGE, KEY_APP_LANGUAGE, 0);
+        syncIntIfPresent(context, allPrefs, PREF_NAV_STYLE, KEY_NAV_STYLE, 0);
     }
 
     public static void resetGlobalToDefaults(@Nullable Context context) {
@@ -127,6 +158,7 @@ public final class AppSettingsStore {
         putGlobalString(context, KEY_ICON, Integer.toString(0));
         putGlobalString(context, KEY_ICON_MODE, Integer.toString(0));
         putGlobalString(context, KEY_APP_LANGUAGE, "");
+        putGlobalString(context, KEY_NAV_STYLE, Integer.toString(0));
     }
 
     private static boolean getBoolean(

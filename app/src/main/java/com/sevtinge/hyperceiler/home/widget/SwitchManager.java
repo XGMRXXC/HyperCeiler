@@ -67,17 +67,24 @@ public class SwitchManager {
         }
 
         mSwitchView.inflateMenu(menuRes);
-        setFloatingStyle(style == NavigationStyle.CAPSULE_ICON);
+        setStyle(style);
     }
 
     /**
-     * 统一入口：切换样式
+     * 统一入口：切换底栏样式（三种样式都走这里）
+     */
+    public void setStyle(NavigationStyle style) {
+        this.isFloatingStyle = style != NavigationStyle.BOTTOM_LABEL;
+        if (mSwitchView != null) {
+            mSwitchView.updateStyle(style);
+        }
+    }
+
+    /**
+     * 兼容旧调用：true = 悬浮胶囊，false = 贴地底栏
      */
     public void setFloatingStyle(boolean useFloating) {
-        this.isFloatingStyle = useFloating;
-        if (mSwitchView != null) {
-            mSwitchView.updateStyle(useFloating ? NavigationStyle.CAPSULE_ICON : NavigationStyle.BOTTOM_LABEL);
-        }
+        setStyle(useFloating ? NavigationStyle.CAPSULE_ICON : NavigationStyle.BOTTOM_LABEL);
     }
 
     /**

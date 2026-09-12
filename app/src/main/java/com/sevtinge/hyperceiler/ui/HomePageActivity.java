@@ -105,9 +105,7 @@ public class HomePageActivity extends AppCompatActivity
     private void setupNavigation() {
         mSwitchManager = new SwitchManager(findViewById(R.id.container));
 
-        boolean isFloating = AppSettingsStore.isFloatNavEnabled(this);
-
-        NavigationStyle initialStyle = isFloating ? NavigationStyle.CAPSULE_ICON : NavigationStyle.BOTTOM_LABEL;
+        NavigationStyle initialStyle = NavigationStyle.fromIndex(AppSettingsStore.getNavStyleIndex(this));
         mSwitchManager.addSwitchView(R.menu.bottom_nav_menu, initialStyle);
 
         // 后续变化通过 LiveData 监听
@@ -119,7 +117,12 @@ public class HomePageActivity extends AppCompatActivity
         isFloatNavEnabled.observe(this, isEnabled -> {
             // Hook/备份链路仍依赖 prefs，保持镜像同步。
             PrefsBridge.putByApp(AppSettingsStore.PREF_FLOAT_NAV, isEnabled);
-            mSwitchManager.setFloatingStyle(isEnabled);
+            // 悬浮开关只决定「悬浮 / 贴地」，具体是胶囊还是液态玻璃由样式项决定
+            int stored = AppSettingsStore.getNavStyleIndex(this);
+            NavigationStyle style = !isEnabled
+                ? NavigationStyle.BOTTOM_LABEL
+                : (stored == 0 ? NavigationStyle.CAPSULE_ICON : NavigationStyle.fromIndex(stored));
+            mSwitchManager.setStyle(style);
         });
 
         mViewPager = findViewById(R.id.vp_fragments);

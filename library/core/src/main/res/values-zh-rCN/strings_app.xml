@@ -157,6 +157,11 @@
     <string name="settings_icon_down">底部</string>
     <string name="settings_icon_mode">图标样式</string>
     <string name="settings_float_nav">悬浮底栏</string>
+    <string name="settings_nav_style">底栏样式</string>
+    <string name="settings_nav_style_desc">切换底部导航栏的样式</string>
+    <string name="settings_nav_style_bottom">贴地标签</string>
+    <string name="settings_nav_style_capsule">悬浮胶囊</string>
+    <string name="settings_nav_style_liquid">液态玻璃（悬浮）</string>
     <string name="settings_app_language">语言</string>
     <string name="settings_icon_miui_14">圆角矩形样式</string>
     <string name="settings_icon_miui_13">背景镂空样式</string>

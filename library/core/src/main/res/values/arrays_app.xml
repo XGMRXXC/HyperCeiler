@@ -53,6 +53,19 @@
         <item>3</item>
     </string-array>
 
+    <!-- 底栏样式：0 贴地标签、1 悬浮胶囊、2 液态玻璃（新增，参考 KernelSU FloatingBottomBar） -->
+    <string-array name="settings_nav_style">
+        <item>@string/settings_nav_style_bottom</item>
+        <item>@string/settings_nav_style_capsule</item>
+        <item>@string/settings_nav_style_liquid</item>
+    </string-array>
+
+    <string-array name="settings_nav_style_value">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+
     <string-array name="settings_icon_mode">
         <item>@string/settings_icon_miui_14</item>
         <item>@string/settings_icon_miui_13</item>

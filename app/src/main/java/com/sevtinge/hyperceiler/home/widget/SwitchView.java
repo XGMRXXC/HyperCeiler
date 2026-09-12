@@ -1,8 +1,10 @@
 package com.sevtinge.hyperceiler.home.widget;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.transition.AutoTransition;
 import android.transition.TransitionManager;
 import android.util.AttributeSet;
@@ -11,6 +13,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -36,23 +39,29 @@ import fan.theme.token.BloomStrokeToken;
 import fan.theme.token.ColorBlendToken;
 import fan.theme.token.MaterialDayNightToken;
 import fan.theme.token.MaterialToken;
+import fan.theme.token.hypermaterial.Mask;
 
 public class SwitchView extends HyperCardView {
 
     /**
-     * 液态玻璃的背景模糊半径（dp）。原来的 40dp 在深色下几乎看不出磨砂感，
-     * 调大到 60dp 才有「隔着一层毛玻璃」的效果。
+     * 新增的液态玻璃样式：背景模糊比原来两种样式（40dp）更重，
+     * 才有「隔着一层毛玻璃」的观感。
      */
-    private static final int GLASS_BLUR_RADIUS_DP = 60;
+    private static final int LIQUID_GLASS_BLUR_RADIUS_DP = 60;
+
+    /** 选中指示器相对每个 item 的内缩，和 KernelSU FloatingBottomBar 的 4dp 对齐。 */
+    private static final int LIQUID_INDICATOR_INSET_DP = 4;
 
     // --- 内部视图 ---
     private View mDividerLine;
+    private View mIndicatorView;
     private LinearLayout mTabContainer;
     private final List<View> mItemViews = new ArrayList<>();
 
     // --- 状态与数据 ---
     private final ViewState mCapsuleState = new ViewState();
     private final ViewState mBottomState = new ViewState();
+    private final ViewState mLiquidState = new ViewState();
 
     private NavigationStyle mCurrentStyle;
     private int mSelectedPosition = -1;
@@ -83,6 +92,12 @@ public class SwitchView extends HyperCardView {
         mDividerLine = new View(getContext());
         mDividerLine.setBackgroundColor(AttributeResolver.resolveColor(getContext(), fan.theme.R.attr.colorDividerLine));
         addView(mDividerLine, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+
+        // 选中指示器（仅液态玻璃样式可见）。必须加在 Tab 容器之前，
+        // 这样图标是盖在指示器上面的。
+        mIndicatorView = new View(getContext());
+        mIndicatorView.setVisibility(View.GONE);
+        addView(mIndicatorView, new FrameLayout.LayoutParams(0, 0));
 
         // Tab 容器
         mTabContainer = new LinearLayout(getContext());
@@ -118,7 +133,6 @@ public class SwitchView extends HyperCardView {
         mCapsuleState.radius = res.getDimensionPixelSize(R.dimen.switch_card_view_radius);
         mCapsuleState.enableShadow = true;
         mCapsuleState.materialConfig = getBloomStrokeDayNightConfig();
-        mCapsuleState.glass = true;
 
         mCapsuleState.dividerVisibility = View.GONE;
         mCapsuleState.containerWidth = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -138,12 +152,9 @@ public class SwitchView extends HyperCardView {
         mBottomState.selfBaseBottomMargin = 0;
         mBottomState.radius = 0;
         mBottomState.enableShadow = false;
-        // 贴地底栏同样走液态玻璃材质：整条磨砂 + 背景模糊 + 玻璃描边
-        mBottomState.materialConfig = getBottomGlassDayNightConfig();
-        mBottomState.glass = true;
+        mBottomState.materialConfig = getDayNightConfig();
 
-        // 材质自带描边，那条 1px 硬分割线只会显脏
-        mBottomState.dividerVisibility = View.GONE;
+        mBottomState.dividerVisibility = View.VISIBLE;
         mBottomState.containerWidth = ViewGroup.LayoutParams.MATCH_PARENT;
         mBottomState.containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT;
         mBottomState.containerGravity = Gravity.TOP;
@@ -153,6 +164,30 @@ public class SwitchView extends HyperCardView {
         mBottomState.itemWeight = 1.0f;
         mBottomState.showText = true;
         mBottomState.itemPaddingH = 0;
+
+        // --- 液态玻璃悬浮底栏（新增样式，参考 KernelSU manager 的 FloatingBottomBar）---
+        // 悬浮药丸：宽度贴合图标、圆角=高度一半、等宽图标、带滑动选中指示器
+        mLiquidState.selfWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
+        mLiquidState.selfHeight = res.getDimensionPixelSize(R.dimen.switch_view_liquid_height);
+        mLiquidState.selfGravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        mLiquidState.selfBaseBottomMargin = res.getDimensionPixelSize(R.dimen.switch_view_margin_bottom);
+        mLiquidState.radius = res.getDimensionPixelSize(R.dimen.switch_view_liquid_radius);
+        mLiquidState.enableShadow = true;
+        mLiquidState.materialConfig = getLiquidGlassDayNightConfig();
+        mLiquidState.glass = true;
+
+        mLiquidState.dividerVisibility = View.GONE;
+        mLiquidState.showIndicator = true;
+        mLiquidState.containerWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
+        mLiquidState.containerHeight = ViewGroup.LayoutParams.MATCH_PARENT;
+        mLiquidState.containerGravity = Gravity.CENTER;
+        mLiquidState.containerPaddingH = dpToPx(LIQUID_INDICATOR_INSET_DP);
+
+        mLiquidState.itemWidth = res.getDimensionPixelSize(R.dimen.switch_view_liquid_item_width);
+        mLiquidState.itemHeight = ViewGroup.LayoutParams.MATCH_PARENT;
+        mLiquidState.itemWeight = 0f;
+        mLiquidState.showText = false;
+        mLiquidState.itemPaddingH = 0;
     }
 
     /**
@@ -161,10 +196,21 @@ public class SwitchView extends HyperCardView {
     public void updateStyle(NavigationStyle style) {
         if (mCurrentStyle == style) return;
         mCurrentStyle = style;
-        boolean isCapsule = (style == NavigationStyle.CAPSULE_ICON);
         // 开启内部元素的丝滑形变动画
         TransitionManager.beginDelayedTransition(this, new AutoTransition().setDuration(50));
-        applyStyleState(isCapsule ? mCapsuleState : mBottomState);
+        applyStyleState(stateFor(style));
+    }
+
+    /** 样式 → 配置池的映射。 */
+    private ViewState stateFor(NavigationStyle style) {
+        if (style == NavigationStyle.CAPSULE_ICON) return mCapsuleState;
+        if (style == NavigationStyle.LIQUID_GLASS) return mLiquidState;
+        return mBottomState;
+    }
+
+    /** 悬浮形态（胶囊 / 液态玻璃）才会飘起来并把系统横条高度算进 margin。 */
+    private static boolean isFloating(NavigationStyle style) {
+        return style == NavigationStyle.CAPSULE_ICON || style == NavigationStyle.LIQUID_GLASS;
     }
 
     /**
@@ -173,7 +219,7 @@ public class SwitchView extends HyperCardView {
     private void applyStyleState(ViewState state) {
         if (getLayoutParams() == null) return;
 
-        boolean isCapsule = (mCurrentStyle == NavigationStyle.CAPSULE_ICON);
+        boolean isCapsule = isFloating(mCurrentStyle);
 
         if (isCapsule) {
             setElevation(dpToPx(8));
@@ -206,8 +252,9 @@ public class SwitchView extends HyperCardView {
         containerLp.gravity = state.containerGravity;
         mTabContainer.setLayoutParams(containerLp);
 
-        // 贴地底栏要把系统横条高度加到 padding 里把内容顶上去；药丸模式则不需要
-        mTabContainer.setPadding(0, 0, 0, isCapsule ? 0 : mSystemBottomInset);
+        // 贴地底栏要把系统横条高度加到 padding 里把内容顶上去；悬浮形态则不需要
+        mTabContainer.setPadding(state.containerPaddingH, 0, state.containerPaddingH,
+            isCapsule ? 0 : mSystemBottomInset);
 
         // 配置子项
         for (View itemView : mItemViews) {
@@ -221,6 +268,9 @@ public class SwitchView extends HyperCardView {
             View tv = itemView.findViewById(android.R.id.text1);
             if (tv != null) tv.setVisibility(state.showText ? View.VISIBLE : View.GONE);
         }
+
+        // 样式切换后要等布局稳定，指示器才能量到真实的 item 位置
+        post(() -> updateIndicator(false));
     }
 
     // --- 菜单与 Item 渲染逻辑 ---
@@ -281,9 +331,73 @@ public class SwitchView extends HyperCardView {
             mItemViews.get(i).setAlpha(i == position ? 1.0f : 0.4f);
         }
 
+        updateIndicator(true);
+
         if (notify && mInternalListener != null) {
             mInternalListener.onSwitchChange(position, (int) mItemViews.get(position).getTag());
         }
+    }
+
+    /**
+     * 液态玻璃样式的滑动选中指示器（对应 KernelSU FloatingBottomBar 里那块跟着
+     * 选中项走的玻璃高亮）。其他样式下隐藏。
+     */
+    private void updateIndicator(boolean animate) {
+        if (mIndicatorView == null) return;
+
+        boolean visible = mCurrentStyle != null && stateFor(mCurrentStyle).showIndicator
+            && mSelectedPosition >= 0 && mSelectedPosition < mItemViews.size();
+        if (!visible) {
+            mIndicatorView.animate().cancel();
+            mIndicatorView.setVisibility(View.GONE);
+            return;
+        }
+
+        View item = mItemViews.get(mSelectedPosition);
+        if (item.getWidth() == 0 || item.getHeight() == 0) return; // 还没布局完
+
+        int inset = dpToPx(LIQUID_INDICATOR_INSET_DP);
+        int width = Math.max(0, item.getWidth() - inset * 2);
+        int height = Math.max(0, item.getHeight() - inset * 2);
+
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mIndicatorView.getLayoutParams();
+        lp.width = width;
+        lp.height = height;
+        lp.gravity = Gravity.TOP | Gravity.START;
+        mIndicatorView.setLayoutParams(lp);
+
+        float targetX = mTabContainer.getLeft() + item.getLeft() + inset;
+        float targetY = mTabContainer.getTop() + item.getTop() + inset;
+
+        applyIndicatorBackground(height / 2f); // 圆角跟着高度走，保证是药丸形
+
+        boolean wasVisible = mIndicatorView.getVisibility() == View.VISIBLE;
+        if (animate && wasVisible) {
+            mIndicatorView.animate()
+                .translationX(targetX)
+                .translationY(targetY)
+                .setDuration(260)
+                .setInterpolator(new PathInterpolator(0.2f, 0f, 0f, 1f))
+                .start();
+        } else {
+            mIndicatorView.animate().cancel();
+            mIndicatorView.setTranslationX(targetX);
+            mIndicatorView.setTranslationY(targetY);
+        }
+        mIndicatorView.setVisibility(View.VISIBLE);
+    }
+
+    /** 指示器外观：半透明填充 + 细描边，KernelSU 在无模糊时也是这么画的。 */
+    private void applyIndicatorBackground(float radiusPx) {
+        boolean night = (getResources().getConfiguration().uiMode
+            & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+
+        GradientDrawable background = new GradientDrawable();
+        background.setShape(GradientDrawable.RECTANGLE);
+        background.setCornerRadius(radiusPx);
+        background.setColor(night ? 0x1AFFFFFF : 0x1A000000);
+        background.setStroke(dpToPx(1), night ? 0x1FFFFFFF : 0x14000000);
+        mIndicatorView.setBackground(background);
     }
 
     // --- 辅助方法 ---
@@ -302,10 +416,12 @@ public class SwitchView extends HyperCardView {
     /**
      * 应用材质。
      *
-     * 玻璃材质生效时卡片底色必须是透明的：{@code switch_view_background_color}
-     * 是 alpha=0xfa 的近不透明色，留着它会把模糊和玻璃描边整个盖住。
-     * 设备没开「背景模糊」（{@code Settings.Secure.background_blur_enable}）时，
-     * HyperMaterial 不可用，退回原来的实心底色，保证底栏依然清晰可读。
+     * 液态玻璃样式的卡片底色必须是透明的：{@code switch_view_background_color}
+     * 是 alpha=0xfa 的近不透明色，留着它会把模糊和玻璃描边整个盖住。原来两种
+     * 样式保持原样（glass=false），外观和上游完全一致。
+     *
+     * 设备没开「背景模糊」（{@code Settings.Secure.background_blur_enable}）时
+     * HyperMaterial 不可用，此时退回实心底色，保证底栏依然清晰可读。
      */
     private void applyMaterial(ViewState state) {
         boolean hyperMaterial = HyperMaterialUtils.isFeatureEnable(getContext())
@@ -318,38 +434,46 @@ public class SwitchView extends HyperCardView {
         if (hyperMaterial) setMaterial(state.materialConfig);
     }
 
-    /**
-     * 液态玻璃材质：磨砂模糊 + 玻璃描边。参数与 HyperOS 系统里的
-     * frosted 材质对齐，只是圆角和描边尺寸按两种形态各取一套。
-     *
-     * @param radius      材质自身的圆角，悬浮胶囊 30dp，贴地底栏 0
-     * @param lightStroke 浅色下的玻璃描边
-     * @param darkStroke  深色下的玻璃描边
-     */
-    private MaterialDayNightConfig buildGlassConfig(int radius, float[] lightStroke, float[] darkStroke) {
-        MaterialToken lightToken = new MaterialToken.Builder(radius, "frosted-pured-thin", "light")
-            .setBlur(1, 1, 0, GLASS_BLUR_RADIUS_DP)
-            .setColorBlend(ColorBlendToken.Pured_Thin_Light)
-            .setBloomStroke(lightStroke)
+    /** 悬浮胶囊（原有样式，未改动）。 */
+    public MaterialDayNightConfig getBloomStrokeDayNightConfig() {
+        MaterialToken lightToken = new MaterialToken.Builder(30, "frosted-pured-regular", "light")
+            .setBlur(1, 1, 0, 40)
+            .setColorBlend(ColorBlendToken.Pured_Regular_Light)
+            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Light)
             .build();
 
-        MaterialToken darkToken = new MaterialToken.Builder(radius, "frosted-pured-thin", "dark")
-            .setBlur(1, 1, 0, GLASS_BLUR_RADIUS_DP)
-            .setColorBlend(ColorBlendToken.Pured_Thin_Dark)
-            .setBloomStroke(darkStroke)
+        MaterialToken darkToken = new MaterialToken.Builder(30, "frosted-pured-extra-thick", "dark")
+            .setBlur(1, 1, 0, 40)
+            .setColorBlend(ColorBlendToken.Pured_Extra_Thick_Dark)
+            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Dark)
             .build();
 
         return MaterialDayNightConfig.create(new MaterialDayNightToken(lightToken, darkToken));
     }
 
-    /** 悬浮胶囊的玻璃材质：30dp 圆角 + 小尺寸描边。 */
-    public MaterialDayNightConfig getBloomStrokeDayNightConfig() {
-        return buildGlassConfig(30, BloomStrokeToken.Glass_Stroke_Small_Light, BloomStrokeToken.Glass_Stroke_Small_Dark);
+    /** 贴地底栏（原有样式，未改动）。 */
+    public MaterialDayNightConfig getDayNightConfig() {
+        return MaterialDayNightConfig.create(Mask.Pured_Regular);
     }
 
-    /** 贴地底栏的玻璃材质：直角整条，用大尺寸描边才压得住。 */
-    public MaterialDayNightConfig getBottomGlassDayNightConfig() {
-        return buildGlassConfig(0, BloomStrokeToken.Glass_Stroke_Big_Light, BloomStrokeToken.Glass_Stroke_Big_Dark);
+    /**
+     * 新增的液态玻璃样式：比胶囊更薄的填充 + 更重的背景模糊，
+     * 目标是 KernelSU 那个「隔着毛玻璃的悬浮药丸」的观感。
+     */
+    public MaterialDayNightConfig getLiquidGlassDayNightConfig() {
+        MaterialToken lightToken = new MaterialToken.Builder(32, "frosted-pured-thin", "light")
+            .setBlur(1, 1, 0, LIQUID_GLASS_BLUR_RADIUS_DP)
+            .setColorBlend(ColorBlendToken.Pured_Thin_Light)
+            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Light)
+            .build();
+
+        MaterialToken darkToken = new MaterialToken.Builder(32, "frosted-pured-thin", "dark")
+            .setBlur(1, 1, 0, LIQUID_GLASS_BLUR_RADIUS_DP)
+            .setColorBlend(ColorBlendToken.Pured_Thin_Dark)
+            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Dark)
+            .build();
+
+        return MaterialDayNightConfig.create(new MaterialDayNightToken(lightToken, darkToken));
     }
 
     public int getPositionById(int itemId) {
@@ -377,10 +501,12 @@ public class SwitchView extends HyperCardView {
         float radius;
         boolean enableShadow;
         MaterialDayNightConfig materialConfig;
+        /** true 时底栏自带透明+模糊材质（新增的液态玻璃样式）。 */
         boolean glass;
 
         int dividerVisibility;
-        int containerWidth, containerHeight, containerGravity;
+        boolean showIndicator;
+        int containerWidth, containerHeight, containerGravity, containerPaddingH;
 
         int itemWidth, itemHeight, itemPaddingH;
         float itemWeight;

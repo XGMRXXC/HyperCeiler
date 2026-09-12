@@ -100,6 +100,11 @@
 
     <dimen name="switch_view_capsule_item_width">56dp</dimen>
 
+    <!-- 液态玻璃悬浮底栏（新增样式）：64dp 药丸 + 32dp 圆角 + 64dp 等宽图标 -->
+    <dimen name="switch_view_liquid_height">64.0dp</dimen>
+    <dimen name="switch_view_liquid_radius">32.0dp</dimen>
+    <dimen name="switch_view_liquid_item_width">64.0dp</dimen>
+
     <dimen name="logo_width">280dp</dimen>
     <dimen name="logo_height">40dp</dimen>
     <dimen name="logo_bottom">250dp</dimen>

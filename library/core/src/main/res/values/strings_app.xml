@@ -191,6 +191,11 @@
     <string name="settings_icon_down">Bottom</string>
     <string name="settings_icon_mode">Icon style</string>
     <string name="settings_float_nav">Floating Bottom Bar</string>
+    <string name="settings_nav_style">Bottom bar style</string>
+    <string name="settings_nav_style_desc">Switch the style of the bottom navigation bar</string>
+    <string name="settings_nav_style_bottom">Edge-to-edge labels</string>
+    <string name="settings_nav_style_capsule">Floating capsule</string>
+    <string name="settings_nav_style_liquid">Liquid glass (floating)</string>
     <string name="settings_app_language">Language</string>
     <string name="settings_icon_miui_14">Rounded rectangle style</string>
     <string name="settings_icon_miui_13">Background cutout style</string>
