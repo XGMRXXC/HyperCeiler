@@ -30,6 +30,12 @@ on:
       - "*.md"
   workflow_dispatch:
 
+# Pushing several commits in a row would otherwise queue a run for each one;
+# keep only the newest run per branch.
+concurrency:
+  group: fork-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_dev:
     name: Build dev (canary)
