@@ -1,0 +1,67 @@
+# Fork-only CI: builds the `dev` branch.
+#
+# This file does not exist upstream. It is added on the fork because the
+# upstream workflow cannot build a fork's own branches:
+#
+#   * its push trigger only listens on `main`
+#   * its "Create Sign File" step needs the maintainer's keystore secrets
+#     (KEY_STORE_PASSWORD / ALIAS / SIGNING_KEY), which a fork does not have.
+#     With them empty it still creates signing.properties, and the build then
+#     dies with "Cannot convert '' to File" -- a fork must NOT create that file
+#     so the build falls back to debug signing.
+#
+# So this workflow only injects the two secrets needed to fetch the private
+# fan.miuix / hyperceiler-expansion packages.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   GIT_ACTOR : your GitHub username
+#   GIT_TOKEN : a token with read:packages
+
+name: Fork CI
+
+on:
+  push:
+    branches: [dev]
+    paths-ignore:
+      - "*.md"
+  workflow_dispatch:
+
+jobs:
+  build_dev:
+    name: Build dev (canary)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # versionCode is derived from the commit count, so full history is
+          # required or the APK gets a bogus (very low) version code.
+          fetch-depth: 0
+          submodules: true
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Build canary
+        env:
+          GIT_ACTOR: ${{ secrets.GIT_ACTOR }}
+          GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
+        run: ./gradlew assembleCanary
+
+      - name: Show APK
+        run: |
+          ls -l app/build/outputs/apk/canary/
+          shasum -a 256 app/build/outputs/apk/canary/*.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: HyperCeiler-dev-canary
+          path: app/build/outputs/apk/canary/*.apk
+          compression-level: 9
