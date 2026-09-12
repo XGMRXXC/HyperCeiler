@@ -108,22 +108,10 @@ public class HomePageActivity extends AppCompatActivity
         NavigationStyle initialStyle = NavigationStyle.fromIndex(AppSettingsStore.getNavStyleIndex(this));
         mSwitchManager.addSwitchView(R.menu.bottom_nav_menu, initialStyle);
 
-        // 后续变化通过 LiveData 监听
-        LiveData<Boolean> isFloatNavEnabled = Settings.Global.getBooleanLiveData(
-            this,
-            AppSettingsStore.KEY_FLOAT_NAV,
-            false
-        );
-        isFloatNavEnabled.observe(this, isEnabled -> {
-            // Hook/备份链路仍依赖 prefs，保持镜像同步。
-            PrefsBridge.putByApp(AppSettingsStore.PREF_FLOAT_NAV, isEnabled);
-            // 悬浮开关只决定「悬浮 / 贴地」，具体是胶囊还是液态玻璃由样式项决定
-            int stored = AppSettingsStore.getNavStyleIndex(this);
-            NavigationStyle style = !isEnabled
-                ? NavigationStyle.BOTTOM_LABEL
-                : (stored == 0 ? NavigationStyle.CAPSULE_ICON : NavigationStyle.fromIndex(stored));
-            mSwitchManager.setStyle(style);
-        });
+        // 底栏样式是唯一的事实来源，设置页改完会直接回调过来（见 SettingsFragment），
+        // 这里不再监听旧的 settings_float_nav 布尔键当触发器：那个键在真机
+        // Settings.Global 里往往不存在，LiveData 每次启动都会用默认值 false
+        // 触发一次，把用户选的样式覆盖成贴地底栏。
 
         mViewPager = findViewById(R.id.vp_fragments);
         rebuildContentPages();
@@ -190,6 +178,10 @@ public class HomePageActivity extends AppCompatActivity
     protected void onResume() {
         super.onResume();
         PageDecorator.onResume();
+        // 备份恢复等外部改动可能在别处写入样式，回到前台时对齐一次
+        if (mSwitchManager != null) {
+            mSwitchManager.setStyle(NavigationStyle.fromIndex(AppSettingsStore.getNavStyleIndex(this)));
+        }
     }
 
     @Override

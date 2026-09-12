@@ -3,15 +3,27 @@ package com.sevtinge.hyperceiler.home.widget;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.BlendMode;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RadialGradient;
+import android.graphics.Shader;
+import android.graphics.SweepGradient;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.transition.AutoTransition;
 import android.transition.TransitionManager;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
@@ -26,6 +38,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.sevtinge.hyperceiler.R;
+import com.sevtinge.hyperceiler.home.widget.liquid.SpringValue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,7 +54,7 @@ import fan.theme.token.MaterialDayNightToken;
 import fan.theme.token.MaterialToken;
 import fan.theme.token.hypermaterial.Mask;
 
-public class SwitchView extends HyperCardView {
+public class SwitchView extends HyperCardView implements SensorEventListener {
 
     /**
      * 新增的液态玻璃样式：背景模糊比原来两种样式（40dp）更重，
@@ -52,9 +65,22 @@ public class SwitchView extends HyperCardView {
     /** 选中指示器相对每个 item 的内缩，和 KernelSU FloatingBottomBar 的 4dp 对齐。 */
     private static final int LIQUID_INDICATOR_INSET_DP = 4;
 
+    /** 按下时整条药丸的缩放增量（KernelSU 用 16dp / 宽度）。 */
+    private static final int LIQUID_PRESS_SCALE_DP = 16;
+
+    /** 拖动时药丸的橡皮筋最大位移。 */
+    private static final int LIQUID_RUBBER_BAND_DP = 4;
+
+    /** 重力的方向阈值：|g_xy| > 0.1（约 6°）才认为有倾斜。 */
+    private static final float GRAVITY_THRESHOLD_SQ = 0.01f;
+
+    /** 高光角度按 3° 量化，避免传感器抖动导致高光乱飘。 */
+    private static final float GRAVITY_ANGLE_STEP = (float) (3.0 * Math.PI / 180.0);
+
     // --- 内部视图 ---
     private View mDividerLine;
     private View mIndicatorView;
+    private final Paint mGlassPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private LinearLayout mTabContainer;
     private final List<View> mItemViews = new ArrayList<>();
 
@@ -62,6 +88,27 @@ public class SwitchView extends HyperCardView {
     private final ViewState mCapsuleState = new ViewState();
     private final ViewState mBottomState = new ViewState();
     private final ViewState mLiquidState = new ViewState();
+
+    // --- 液态玻璃：弹簧、手势、传感器 ---
+    private SpringValue mIndicatorSpring;
+    private SpringValue mPressSpring;
+    private SpringValue mScaleSpring;
+    private SpringValue mPanelSpring;
+    private SpringValue mTouchAlphaSpring;
+    private SpringValue mDispersionSpring;
+    private SensorManager mSensorManager;
+    private boolean mTiltRegistered;
+    private float mLightAngle = (float) (-Math.PI / 2.0);
+    private float mTouchX;
+    private float mTouchY;
+    private float mDragValue;
+    private float mDownX;
+    private float mDownY;
+    private float mLastDragX;
+    private boolean mDragging;
+    private int mTouchSlop;
+    private int mTabWidthPx;
+    private int mTotalWidthPx;
 
     private NavigationStyle mCurrentStyle;
     private int mSelectedPosition = -1;
@@ -80,7 +127,28 @@ public class SwitchView extends HyperCardView {
         super(context, attrs);
         initStructure();
         prepareStates();
+        initLiquid();
         setupEdgeToEdge();
+    }
+
+    /** 液态玻璃样式的弹簧与手势参数，全部对齐 KernelSU 的 DampedDragAnimation。 */
+    private void initLiquid() {
+        mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+
+        mIndicatorSpring = new SpringValue(1000f, 1f, 0.001f, 0f);
+        mPressSpring = new SpringValue(1000f, 1f, 0.001f, 0f);
+        mScaleSpring = new SpringValue(250f, 0.6f, 0.001f, 1f);
+        mPanelSpring = new SpringValue(300f, 0.5f, 0.01f, 0f);
+        mTouchAlphaSpring = new SpringValue(300f, 0.5f, 0.001f, 0f);
+        mDispersionSpring = new SpringValue(300f, 0.5f, 0.001f, 0f);
+
+        Runnable frame = this::applyLiquidFrame;
+        mIndicatorSpring.setOnUpdate(frame);
+        mPressSpring.setOnUpdate(frame);
+        mScaleSpring.setOnUpdate(frame);
+        mPanelSpring.setOnUpdate(frame);
+        mTouchAlphaSpring.setOnUpdate(frame);
+        mDispersionSpring.setOnUpdate(frame);
     }
 
     private void initStructure() {
@@ -93,11 +161,16 @@ public class SwitchView extends HyperCardView {
         mDividerLine.setBackgroundColor(AttributeResolver.resolveColor(getContext(), fan.theme.R.attr.colorDividerLine));
         addView(mDividerLine, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
-        // 选中指示器（仅液态玻璃样式可见）。必须加在 Tab 容器之前，
+        // 选中指示器（仅悬浮药丸样式可见）。必须加在 Tab 容器之前，
         // 这样图标是盖在指示器上面的。
         mIndicatorView = new View(getContext());
         mIndicatorView.setVisibility(View.GONE);
         addView(mIndicatorView, new FrameLayout.LayoutParams(0, 0));
+
+        // 注意：这里**不能**再挂一个全尺寸的自绘子 View（试过 AGSL 玻璃层）——
+        // 只要 HyperCardView 里多出一个用 RuntimeShader 画的子 View，HyperOS 的
+        // 背景模糊就整个失效（日志里 setMiViewMaterialType 一直是 0），药丸会变成
+        // 完全没有底色的图标。所以高光改成在 dispatchDraw 里用渐变直接画。
 
         // Tab 容器
         mTabContainer = new LinearLayout(getContext());
@@ -125,25 +198,9 @@ public class SwitchView extends HyperCardView {
     private void prepareStates() {
         Resources res = getResources();
 
-        // --- 药丸悬浮模式 ---
-        mCapsuleState.selfWidth = res.getDimensionPixelSize(R.dimen.switch_view_width);
-        mCapsuleState.selfHeight = res.getDimensionPixelSize(R.dimen.switch_view_height);
-        mCapsuleState.selfGravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        mCapsuleState.selfBaseBottomMargin = res.getDimensionPixelSize(R.dimen.switch_view_margin_bottom);
-        mCapsuleState.radius = res.getDimensionPixelSize(R.dimen.switch_card_view_radius);
-        mCapsuleState.enableShadow = true;
-        mCapsuleState.materialConfig = getBloomStrokeDayNightConfig();
-
-        mCapsuleState.dividerVisibility = View.GONE;
-        mCapsuleState.containerWidth = ViewGroup.LayoutParams.MATCH_PARENT;
-        mCapsuleState.containerHeight = ViewGroup.LayoutParams.MATCH_PARENT;
-        mCapsuleState.containerGravity = Gravity.CENTER;
-
-        mCapsuleState.itemWidth = res.getDimensionPixelSize(R.dimen.switch_view_capsule_item_width);
-        mCapsuleState.itemHeight = ViewGroup.LayoutParams.MATCH_PARENT;
-        mCapsuleState.itemWeight = 1f;
-        mCapsuleState.showText = false;
-        mCapsuleState.itemPaddingH = dpToPx(16);
+        // --- 悬浮药丸（原「悬浮胶囊」：形态换成新药丸，材质仍是原来那套 frosted）---
+        applyPillShape(mCapsuleState, res);
+        mCapsuleState.materialConfig = getCapsuleGlassDayNightConfig();
 
         // --- 底部模式 ---
         mBottomState.selfWidth = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -166,28 +223,37 @@ public class SwitchView extends HyperCardView {
         mBottomState.itemPaddingH = 0;
 
         // --- 液态玻璃悬浮底栏（新增样式，参考 KernelSU manager 的 FloatingBottomBar）---
-        // 悬浮药丸：宽度贴合图标、圆角=高度一半、等宽图标、带滑动选中指示器
-        mLiquidState.selfWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
-        mLiquidState.selfHeight = res.getDimensionPixelSize(R.dimen.switch_view_liquid_height);
-        mLiquidState.selfGravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        mLiquidState.selfBaseBottomMargin = res.getDimensionPixelSize(R.dimen.switch_view_margin_bottom);
-        mLiquidState.radius = res.getDimensionPixelSize(R.dimen.switch_view_liquid_radius);
-        mLiquidState.enableShadow = true;
+        // 和上面的药丸同形态，额外带 AGSL 玻璃层 + 弹簧拖拽 + 倾斜高光
+        applyPillShape(mLiquidState, res);
+        mLiquidState.glassOverlay = true;
         mLiquidState.materialConfig = getLiquidGlassDayNightConfig();
-        mLiquidState.glass = true;
+    }
 
-        mLiquidState.dividerVisibility = View.GONE;
-        mLiquidState.showIndicator = true;
-        mLiquidState.containerWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
-        mLiquidState.containerHeight = ViewGroup.LayoutParams.MATCH_PARENT;
-        mLiquidState.containerGravity = Gravity.CENTER;
-        mLiquidState.containerPaddingH = dpToPx(LIQUID_INDICATOR_INSET_DP);
+    /**
+     * 两种悬浮药丸（「悬浮胶囊」和「液态玻璃」）共用的形态：
+     * 宽度贴合图标、圆角=高度一半、等宽图标、带滑动选中指示器。
+     */
+    private void applyPillShape(ViewState state, Resources res) {
+        state.selfWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
+        state.selfHeight = res.getDimensionPixelSize(R.dimen.switch_view_liquid_height);
+        state.selfGravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        state.selfBaseBottomMargin = res.getDimensionPixelSize(R.dimen.switch_view_margin_bottom);
+        state.radius = res.getDimensionPixelSize(R.dimen.switch_view_liquid_radius);
+        state.enableShadow = true;
+        state.glass = true;
 
-        mLiquidState.itemWidth = res.getDimensionPixelSize(R.dimen.switch_view_liquid_item_width);
-        mLiquidState.itemHeight = ViewGroup.LayoutParams.MATCH_PARENT;
-        mLiquidState.itemWeight = 0f;
-        mLiquidState.showText = false;
-        mLiquidState.itemPaddingH = 0;
+        state.dividerVisibility = View.GONE;
+        state.showIndicator = true;
+        state.containerWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
+        state.containerHeight = ViewGroup.LayoutParams.MATCH_PARENT;
+        state.containerGravity = Gravity.CENTER;
+        state.containerPaddingH = dpToPx(LIQUID_INDICATOR_INSET_DP);
+
+        state.itemWidth = res.getDimensionPixelSize(R.dimen.switch_view_liquid_item_width);
+        state.itemHeight = ViewGroup.LayoutParams.MATCH_PARENT;
+        state.itemWeight = 0f;
+        state.showText = false;
+        state.itemPaddingH = 0;
     }
 
     /**
@@ -245,6 +311,15 @@ public class SwitchView extends HyperCardView {
 
         // 配置 Tab 容器 (包含 Edge-to-Edge 适配)
         mDividerLine.setVisibility(state.dividerVisibility);
+
+        if (!state.glassOverlay) {
+            // 离开液态玻璃样式时把交互形变复位
+            setScaleX(1f);
+            setScaleY(1f);
+            mTabContainer.setTranslationX(0f);
+        } else {
+            invalidate();
+        }
 
         FrameLayout.LayoutParams containerLp = (FrameLayout.LayoutParams) mTabContainer.getLayoutParams();
         containerLp.width = state.containerWidth;
@@ -345,6 +420,17 @@ public class SwitchView extends HyperCardView {
     private void updateIndicator(boolean animate) {
         if (mIndicatorView == null) return;
 
+        // 液态玻璃样式的位置/形变全部由弹簧驱动，走 applyLiquidFrame()
+        if (mCurrentStyle == NavigationStyle.LIQUID_GLASS) {
+            if (animate) {
+                mIndicatorSpring.animateTo(mSelectedPosition);
+            } else {
+                mIndicatorSpring.snapTo(mSelectedPosition);
+            }
+            applyLiquidFrame();
+            return;
+        }
+
         boolean visible = mCurrentStyle != null && stateFor(mCurrentStyle).showIndicator
             && mSelectedPosition >= 0 && mSelectedPosition < mItemViews.size();
         if (!visible) {
@@ -434,21 +520,15 @@ public class SwitchView extends HyperCardView {
         if (hyperMaterial) setMaterial(state.materialConfig);
     }
 
-    /** 悬浮胶囊（原有样式，未改动）。 */
-    public MaterialDayNightConfig getBloomStrokeDayNightConfig() {
-        MaterialToken lightToken = new MaterialToken.Builder(30, "frosted-pured-regular", "light")
-            .setBlur(1, 1, 0, 40)
-            .setColorBlend(ColorBlendToken.Pured_Regular_Light)
-            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Light)
-            .build();
-
-        MaterialToken darkToken = new MaterialToken.Builder(30, "frosted-pured-extra-thick", "dark")
-            .setBlur(1, 1, 0, 40)
-            .setColorBlend(ColorBlendToken.Pured_Extra_Thick_Dark)
-            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Dark)
-            .build();
-
-        return MaterialDayNightConfig.create(new MaterialDayNightToken(lightToken, darkToken));
+    /**
+     * 「悬浮胶囊」的玻璃材质。
+     *
+     * 形态换成新药丸之后，这里沿用原来胶囊那套混合（亮色 Regular / 暗色
+     * Extra_Thick），所以不会像早期版本那样「透明到跟没有一样」。
+     */
+    public MaterialDayNightConfig getCapsuleGlassDayNightConfig() {
+        return buildPillGlassConfig(40, ColorBlendToken.Pured_Regular_Light,
+            ColorBlendToken.Pured_Extra_Thick_Dark);
     }
 
     /** 贴地底栏（原有样式，未改动）。 */
@@ -457,19 +537,32 @@ public class SwitchView extends HyperCardView {
     }
 
     /**
-     * 新增的液态玻璃样式：比胶囊更薄的填充 + 更重的背景模糊，
-     * 目标是 KernelSU 那个「隔着毛玻璃的悬浮药丸」的观感。
+     * 「液态玻璃」的材质：在胶囊基础上把背景模糊加大到 60dp，
+     * 边缘的折射/色散/高光由 {@link LiquidGlassOverlay} 那层 AGSL 叠上去。
      */
     public MaterialDayNightConfig getLiquidGlassDayNightConfig() {
-        MaterialToken lightToken = new MaterialToken.Builder(32, "frosted-pured-thin", "light")
-            .setBlur(1, 1, 0, LIQUID_GLASS_BLUR_RADIUS_DP)
-            .setColorBlend(ColorBlendToken.Pured_Thin_Light)
+        return buildPillGlassConfig(LIQUID_GLASS_BLUR_RADIUS_DP, ColorBlendToken.Pured_Regular_Light,
+            ColorBlendToken.Pured_Extra_Thick_Dark);
+    }
+
+    /**
+     * 药丸共用的 frosted 材质。
+     *
+     * @param blurRadius 背景模糊半径（dp）
+     * @param light      浅色混合，越「厚」越不透明
+     * @param dark       深色混合
+     */
+    private MaterialDayNightConfig buildPillGlassConfig(int blurRadius, ColorBlendToken light,
+                                                       ColorBlendToken dark) {
+        MaterialToken lightToken = new MaterialToken.Builder(32, "frosted-pured-regular", "light")
+            .setBlur(1, 1, 0, blurRadius)
+            .setColorBlend(light)
             .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Light)
             .build();
 
-        MaterialToken darkToken = new MaterialToken.Builder(32, "frosted-pured-thin", "dark")
-            .setBlur(1, 1, 0, LIQUID_GLASS_BLUR_RADIUS_DP)
-            .setColorBlend(ColorBlendToken.Pured_Thin_Dark)
+        MaterialToken darkToken = new MaterialToken.Builder(32, "frosted-pured-extra-thick", "dark")
+            .setBlur(1, 1, 0, blurRadius)
+            .setColorBlend(dark)
             .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Dark)
             .build();
 
@@ -495,6 +588,310 @@ public class SwitchView extends HyperCardView {
         return (int) (dp * getResources().getDisplayMetrics().density);
     }
 
+    // ================= 液态玻璃样式：弹簧驱动的手势与光学效果 =================
+
+    /**
+     * 每帧把弹簧状态刷到视图上。这些量对应 KernelSU FloatingBottomBar 里的
+     * dampedDragAnimation（位置/按下进度/缩放/位移）与 InteractiveHighlight。
+     */
+    private void applyLiquidFrame() {
+        if (mCurrentStyle != NavigationStyle.LIQUID_GLASS || mItemViews.isEmpty()) return;
+
+        updatePillMetrics();
+        int inset = dpToPx(LIQUID_INDICATOR_INSET_DP);
+        float value = mIndicatorSpring.get();
+        float press = mPressSpring.get();
+        float panelOffset = mPanelSpring.get();
+
+        if (mIndicatorView != null && mTabWidthPx > 0) {
+            int width = Math.max(0, mTabWidthPx - inset * 2);
+            int height = Math.max(0, mTabContainer.getHeight() - inset * 2);
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mIndicatorView.getLayoutParams();
+            if (lp.width != width || lp.height != height) {
+                lp.width = width;
+                lp.height = height;
+                lp.gravity = Gravity.TOP | Gravity.START;
+                mIndicatorView.setLayoutParams(lp);
+                applyIndicatorBackground(height / 2f);
+            }
+            mIndicatorView.setVisibility(View.VISIBLE);
+            mIndicatorView.setTranslationX(value * mTabWidthPx + inset + panelOffset);
+            mIndicatorView.setTranslationY(inset);
+
+            // 拖动速度让指示器沿运动方向拉伸（对应 KernelSU 的 layerBlock）
+            float velocity = mIndicatorSpring.getVelocity() / 10f;
+            float scaleX = 1f / (1f - clamp(velocity * 0.75f, -0.2f, 0.2f));
+            float scaleY = 1f - clamp(velocity * 0.25f, -0.2f, 0.2f);
+            mIndicatorView.setScaleX(clamp(scaleX, 0.6f, 1.6f));
+            mIndicatorView.setScaleY(clamp(scaleY, 0.6f, 1.6f));
+        }
+
+        // 整条药丸按下放大 + 拖动橡皮筋位移
+        float scale = mScaleSpring.get();
+        setScaleX(scale);
+        setScaleY(scale);
+        mTabContainer.setTranslationX(panelOffset);
+
+        // 手指底下那一格的图标跟着放大
+        int activeIndex = Math.max(0, Math.min(mItemViews.size() - 1, Math.round(value)));
+        for (int i = 0; i < mItemViews.size(); i++) {
+            float itemScale = 1f + (i == activeIndex ? 0.2f * press : 0f);
+            mItemViews.get(i).setScaleX(itemScale);
+            mItemViews.get(i).setScaleY(itemScale);
+        }
+
+        updateGlassOverlay();
+    }
+
+    private void updateGlassOverlay() {
+        if (mCurrentStyle != NavigationStyle.LIQUID_GLASS) return;
+        // 高光在 dispatchDraw 里画，这里只要触发一次重绘
+        invalidate();
+    }
+
+    private void updatePillMetrics() {
+        mTabWidthPx = mItemViews.isEmpty() ? 0 : mItemViews.get(0).getWidth();
+        mTotalWidthPx = mTabContainer.getWidth();
+    }
+
+    /** 按下：整条放大、触摸高光淡入、轻微震动。 */
+    private void beginPress(float x, float y) {
+        if (mCurrentStyle != NavigationStyle.LIQUID_GLASS) return;
+        mDragValue = mSelectedPosition;
+        mTouchX = x;
+        mTouchY = y;
+        mPressSpring.animateTo(1f);
+        mScaleSpring.animateTo(1f + (float) dpToPx(LIQUID_PRESS_SCALE_DP) / Math.max(1, getWidth()));
+        mTouchAlphaSpring.animateTo(1f);
+        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+    }
+
+    /** 抬手：复位所有交互状态，并吸附到最近的一格。 */
+    private void endPress(boolean cancelled) {
+        if (mCurrentStyle != NavigationStyle.LIQUID_GLASS) return;
+        mPressSpring.animateTo(0f);
+        mScaleSpring.animateTo(1f);
+        mTouchAlphaSpring.animateTo(0f);
+        mDispersionSpring.animateTo(0f);
+        mPanelSpring.animateTo(0f);
+
+        if (cancelled) {
+            mIndicatorSpring.animateTo(mSelectedPosition);
+            return;
+        }
+        int index = Math.max(0, Math.min(mItemViews.size() - 1, Math.round(mIndicatorSpring.get())));
+        boolean changed = index != mSelectedPosition;
+        setSelectedTab(index, changed);
+        if (!changed) {
+            mIndicatorSpring.animateTo(index);
+        }
+    }
+
+    @Override
+    public boolean onInterceptTouchEvent(MotionEvent ev) {
+        if (mCurrentStyle != NavigationStyle.LIQUID_GLASS) {
+            return super.onInterceptTouchEvent(ev);
+        }
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                mDownX = ev.getX();
+                mDownY = ev.getY();
+                mLastDragX = ev.getX();
+                mDragging = false;
+                beginPress(ev.getX(), ev.getY());
+                return false;
+            case MotionEvent.ACTION_MOVE:
+                // 超过 touch slop 才把事件从图标手里抢过来，保证单击仍然可用
+                if (!mDragging && Math.abs(ev.getX() - mDownX) > mTouchSlop) {
+                    mDragging = true;
+                    mDispersionSpring.animateTo(1f);
+                    return true;
+                }
+                return false;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                endPress(ev.getActionMasked() == MotionEvent.ACTION_CANCEL);
+                return false;
+            default:
+                return super.onInterceptTouchEvent(ev);
+        }
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent ev) {
+        if (mCurrentStyle != NavigationStyle.LIQUID_GLASS) {
+            return super.onTouchEvent(ev);
+        }
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                mLastDragX = ev.getX();
+                mDownX = ev.getX();
+                beginPress(ev.getX(), ev.getY());
+                return true;
+            case MotionEvent.ACTION_MOVE: {
+                updatePillMetrics();
+                if (mTabWidthPx <= 0) return true;
+                float dx = ev.getX() - mLastDragX;
+                mLastDragX = ev.getX();
+                float max = Math.max(0, mItemViews.size() - 1);
+                mDragValue = clamp(mDragValue + dx / mTabWidthPx, 0f, max);
+                mIndicatorSpring.animateTo(mDragValue);
+                // 越界时的橡皮筋位移：4dp × easeOut(越界比例)
+                float fraction = clamp((ev.getX() - mDownX) / Math.max(1f, mTotalWidthPx), -1f, 1f);
+                float direction = fraction < 0 ? -1f : 1f;
+                float eased = 1f - (1f - Math.abs(fraction)) * (1f - Math.abs(fraction));
+                mPanelSpring.animateTo(dpToPx(LIQUID_RUBBER_BAND_DP) * direction * eased);
+                mTouchX = ev.getX();
+                mTouchY = ev.getY();
+                return true;
+            }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                endPress(ev.getActionMasked() == MotionEvent.ACTION_CANCEL);
+                return true;
+            default:
+                return super.onTouchEvent(ev);
+        }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (mSensorManager == null) {
+            mSensorManager = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+        }
+        Sensor gravity = mSensorManager == null ? null : mSensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY);
+        if (gravity != null && !mTiltRegistered) {
+            mSensorManager.registerListener(this, gravity, SensorManager.SENSOR_DELAY_GAME);
+            mTiltRegistered = true;
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (mTiltRegistered && mSensorManager != null) {
+            mSensorManager.unregisterListener(this);
+            mTiltRegistered = false;
+        }
+        super.onDetachedFromWindow();
+    }
+
+    /**
+     * 重力传感器 → 高光方向。
+     *
+     * 重力指向地面，屏幕坐标里「世界上方」= -g，光源就来自那个方向；
+     * 按 3° 量化（对应 KernelSU 里 GRAVITY_ANGLE_STEP 的做法）避免高光抖动，
+     * 再偏移 -45°（对应 rememberGravityRotatedHighlight 的 extraDegrees）。
+     */
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() != Sensor.TYPE_GRAVITY) return;
+        float gx = event.values[0];
+        float gy = event.values[1];
+        float angle;
+        if (gx * gx + gy * gy > GRAVITY_THRESHOLD_SQ) {
+            angle = (float) Math.atan2(-gy, -gx);
+            angle = Math.round(angle / GRAVITY_ANGLE_STEP) * GRAVITY_ANGLE_STEP;
+        } else {
+            angle = (float) (-Math.PI / 2.0);
+        }
+        angle -= (float) (Math.PI / 4.0);
+        if (angle != mLightAngle) {
+            mLightAngle = angle;
+            updateGlassOverlay();
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    }
+
+    private boolean isNight() {
+        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+            == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    // ---------- 液态玻璃的光学高光（直接画，不新增子 View） ----------
+
+    @Override
+    protected void dispatchDraw(Canvas canvas) {
+        super.dispatchDraw(canvas);
+        if (mCurrentStyle == NavigationStyle.LIQUID_GLASS) {
+            drawGlassHighlights(canvas);
+        }
+    }
+
+    /**
+     * 玻璃边缘的镜片高光 / 触摸高光 / 按下提亮 / 拖动色散。
+     *
+     * 对应 KernelSU FloatingBottomBar 里的 Highlight(BloomStroke)、
+     * InteractiveHighlight 与 lens(chromaticAberration)；用渐变近似，
+     * 换来的是 HyperOS 原生背景模糊能正常工作。
+     */
+    private void drawGlassHighlights(Canvas canvas) {
+        float width = getWidth();
+        float height = getHeight();
+        if (width <= 0 || height <= 0) return;
+
+        float radius = mLiquidState.radius;
+        mGlassPaint.setShader(null);
+        mGlassPaint.setStyle(Paint.Style.FILL);
+        mGlassPaint.setBlendMode(BlendMode.PLUS);
+
+        // 双峰镜片高光：主光源一侧 + 对侧弱一些
+        drawSpecularArc(canvas, width, height, radius, mLightAngle, 0.9f);
+        drawSpecularArc(canvas, width, height, radius, mLightAngle + (float) Math.PI, 0.4f);
+
+        float press = mPressSpring.get();
+        if (press > 0.001f) {
+            mGlassPaint.setColor(Color.WHITE);
+            mGlassPaint.setAlpha((int) (255 * 0.06f * press));
+            canvas.drawRoundRect(0f, 0f, width, height, radius, radius, mGlassPaint);
+        }
+
+        float touchAlpha = mTouchAlphaSpring.get();
+        if (touchAlpha > 0.001f) {
+            float glowRadius = Math.max(width, height) * 0.8f;
+            mGlassPaint.setShader(new RadialGradient(
+                clamp(mTouchX, 0f, width), clamp(mTouchY, 0f, height), glowRadius,
+                new int[]{0x59FFFFFF, 0x00FFFFFF}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
+            mGlassPaint.setAlpha((int) (255 * touchAlpha));
+            canvas.drawRoundRect(0f, 0f, width, height, radius, radius, mGlassPaint);
+            mGlassPaint.setShader(null);
+        }
+
+        float dispersion = mDispersionSpring.get();
+        if (dispersion > 0.01f) {
+            mGlassPaint.setShader(new SweepGradient(width / 2f, height / 2f,
+                new int[]{0x40FF3B30, 0x40FFCC00, 0x4034C759, 0x400A84FF, 0x40AF52DE, 0x40FF3B30},
+                null));
+            mGlassPaint.setStyle(Paint.Style.STROKE);
+            mGlassPaint.setStrokeWidth(dpToPx(2));
+            mGlassPaint.setAlpha((int) (255 * 0.45f * clamp(dispersion, 0f, 1f)));
+            canvas.drawRoundRect(1f, 1f, width - 1f, height - 1f, radius, radius, mGlassPaint);
+            mGlassPaint.setShader(null);
+            mGlassPaint.setStyle(Paint.Style.FILL);
+        }
+
+        mGlassPaint.setBlendMode(BlendMode.SRC_OVER);
+    }
+
+    private void drawSpecularArc(Canvas canvas, float width, float height, float radius,
+                                 float angle, float strength) {
+        float centerX = width / 2f + (float) Math.cos(angle) * width * 0.5f;
+        float centerY = height / 2f + (float) Math.sin(angle) * height * 0.5f;
+        mGlassPaint.setShader(new RadialGradient(centerX, centerY,
+            Math.max(width, height) * 0.8f,
+            new int[]{0x38FFFFFF, 0x00FFFFFF}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
+        mGlassPaint.setAlpha((int) (255 * strength));
+        canvas.drawRoundRect(0f, 0f, width, height, radius, radius, mGlassPaint);
+        mGlassPaint.setShader(null);
+    }
+
     // --- 状态结构体 ---
     private static class ViewState {
         int selfWidth, selfHeight, selfGravity, selfBaseBottomMargin;
@@ -506,6 +903,8 @@ public class SwitchView extends HyperCardView {
 
         int dividerVisibility;
         boolean showIndicator;
+        /** true 时叠加 AGSL 玻璃层（液态玻璃样式）。 */
+        boolean glassOverlay;
         int containerWidth, containerHeight, containerGravity, containerPaddingH;
 
         int itemWidth, itemHeight, itemPaddingH;
