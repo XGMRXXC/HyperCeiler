@@ -21,6 +21,8 @@ import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.lifecycle.LiveData;
 import androidx.preference.Preference;
@@ -72,6 +74,9 @@ public class HomePageActivity extends AppCompatActivity
     private static final String STATE_CURRENT_PAGE = "home_current_page";
 
     private LiquidBackButtonView mBackButton;
+
+    /** 当前显示的是不是二级菜单（不是主页那三个标签）。 */
+    private boolean mSecondaryPage;
     private LiquidTopBarView mTopBar;
 
     public ViewPager mViewPager;
@@ -133,6 +138,7 @@ public class HomePageActivity extends AppCompatActivity
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
         setupLiquidTopBar();
         setupLiquidBackButton();
+        watchSecondaryPages();
     }
 
     /**
@@ -183,15 +189,7 @@ public class HomePageActivity extends AppCompatActivity
         mBackButton.setBackdropSource(mViewPager);
 
         int threshold = (int) (24 * density);
-        container.getViewTreeObserver().addOnScrollChangedListener(() -> {
-            if (mBackButton == null) return;
-            int offset = maxScrollOffset(container);
-            // "能返回"的权威判据：有回退栈，或当前标签不是主页，或有人接管了返回
-            boolean hasBack = mViewPager != null && mViewPager.getCurrentItem() != 0
-                || getSupportFragmentManager().getBackStackEntryCount() > 0
-                || getOnBackPressedDispatcher().hasEnabledCallbacks();
-            mBackButton.setButtonVisible(offset > threshold && hasBack);
-        });
+        container.getViewTreeObserver().addOnScrollChangedListener(this::containerScrollCheck);
     }
 
     /** 取视图树里最大的纵向滚动量。 */
@@ -215,11 +213,39 @@ public class HomePageActivity extends AppCompatActivity
         return max;
     }
 
-    private void updateTopBarVisibility(int position) {
-        // 常驻显示：顶栏本身不透明时它自然被挡住，透明顶栏（设置页、二级页面）才会透出来，
-        // 因此不需要按页码判断。
+    /**
+     * 只在二级菜单里显示 OS4 顶栏效果。
+     *
+     * 主页那三个标签（主页/设置/关于）不要：通过 Fragment 生命周期判断当前 resume 的是不是
+     * 其中一个标签 Fragment，不是就说明进了二级菜单。
+     */
+    private void watchSecondaryPages() {
+        getSupportFragmentManager().registerFragmentLifecycleCallbacks(
+            new FragmentManager.FragmentLifecycleCallbacks() {
+                @Override
+                public void onFragmentResumed(@NonNull FragmentManager fm, @NonNull Fragment fragment) {
+                    mSecondaryPage = !(fragment instanceof HomePageFragment
+                        || fragment instanceof SettingsPageFragment
+                        || fragment instanceof AboutPageFragment);
+                    updateOs4Overlays();
+                }
+            }, true);
+    }
+
+    private void updateOs4Overlays() {
+        containerScrollCheck();
+    }
+
+    private void containerScrollCheck() {
+        ViewGroup container = findViewById(R.id.container);
+        if (container == null) return;
+        int threshold = (int) (24 * getResources().getDisplayMetrics().density);
+        boolean scrolled = maxScrollOffset(container) > threshold;
         if (mTopBar != null) {
-            mTopBar.setStripVisible(true);
+            mTopBar.setStripVisible(mSecondaryPage);
+        }
+        if (mBackButton != null) {
+            mBackButton.setButtonVisible(mSecondaryPage && scrolled);
         }
     }
 
@@ -290,7 +316,6 @@ public class HomePageActivity extends AppCompatActivity
         public void onPageSelected(int position) {
             super.onPageSelected(position);
             mSwitchManager.setSelectedPosition(position, true);
-            updateTopBarVisibility(position);
             // 换页后重新解析采样源，否则玻璃还是上一页的内容
             if (mViewPager != null) {
                 mViewPager.post(HomePageActivity.this::updateBackdropSource);

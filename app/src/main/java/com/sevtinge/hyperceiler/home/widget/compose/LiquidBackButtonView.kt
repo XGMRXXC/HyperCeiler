@@ -84,7 +84,7 @@ class LiquidBackButtonView(context: Context) : FrameLayout(context) {
                     Modifier
                         .fillMaxSize()
                         .then(
-                            if (backdrop != null) {
+                            if (backdrop != null && visible) {
                                 Modifier.drawBackdrop(
                                     backdrop = backdrop,
                                     shape = { CircleShape },
@@ -97,7 +97,9 @@ class LiquidBackButtonView(context: Context) : FrameLayout(context) {
                                             chromaticAberration = 0.4f,
                                         )
                                     },
-                                    highlight = { backButtonHighlight },
+                                    // 高光由 miuix-blur 独立绘制，不看填充的透明度；
+                                    // 隐藏时必须返回 null，否则会留下一个圆环
+                                    highlight = { if (visible) backButtonHighlight else null },
                                     onDrawSurface = {
                                         drawCircle(
                                             color = Color(0xFF1C1C1E).copy(alpha = 0.55f),
