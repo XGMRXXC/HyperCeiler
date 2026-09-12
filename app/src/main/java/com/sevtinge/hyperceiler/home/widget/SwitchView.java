@@ -36,7 +36,6 @@ import fan.theme.token.BloomStrokeToken;
 import fan.theme.token.ColorBlendToken;
 import fan.theme.token.MaterialDayNightToken;
 import fan.theme.token.MaterialToken;
-import fan.theme.token.hypermaterial.Mask;
 
 public class SwitchView extends HyperCardView {
 
@@ -113,6 +112,7 @@ public class SwitchView extends HyperCardView {
         mCapsuleState.radius = res.getDimensionPixelSize(R.dimen.switch_card_view_radius);
         mCapsuleState.enableShadow = true;
         mCapsuleState.materialConfig = getBloomStrokeDayNightConfig();
+        mCapsuleState.glass = true;
 
         mCapsuleState.dividerVisibility = View.GONE;
         mCapsuleState.containerWidth = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -132,9 +132,12 @@ public class SwitchView extends HyperCardView {
         mBottomState.selfBaseBottomMargin = 0;
         mBottomState.radius = 0;
         mBottomState.enableShadow = false;
-        mBottomState.materialConfig = getDayNightConfig();
+        // 贴地底栏同样走液态玻璃材质：整条磨砂 + 背景模糊 + 玻璃描边
+        mBottomState.materialConfig = getBottomGlassDayNightConfig();
+        mBottomState.glass = true;
 
-        mBottomState.dividerVisibility = View.VISIBLE;
+        // 材质自带描边，那条 1px 硬分割线只会显脏
+        mBottomState.dividerVisibility = View.GONE;
         mBottomState.containerWidth = ViewGroup.LayoutParams.MATCH_PARENT;
         mBottomState.containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT;
         mBottomState.containerGravity = Gravity.TOP;
@@ -186,7 +189,7 @@ public class SwitchView extends HyperCardView {
 
         setRadius(state.radius);
         applyShadow(state.enableShadow);
-        applyHyperMaterial(state.materialConfig);
+        applyMaterial(state);
 
         // 配置 Tab 容器 (包含 Edge-to-Edge 适配)
         mDividerLine.setVisibility(state.dividerVisibility);
@@ -290,30 +293,57 @@ public class SwitchView extends HyperCardView {
         }
     }
 
-    private void applyHyperMaterial(MaterialDayNightConfig config) {
-        if (HyperMaterialUtils.isFeatureEnable(getContext()) && RomUtils.getHyperOsVersion() >= 2) {
-            setMaterial(config);
-        }
+    /**
+     * 应用材质。
+     *
+     * 玻璃材质生效时卡片底色必须是透明的：{@code switch_view_background_color}
+     * 是 alpha=0xfa 的近不透明色，留着它会把模糊和玻璃描边整个盖住。
+     * 设备没开「背景模糊」（{@code Settings.Secure.background_blur_enable}）时，
+     * HyperMaterial 不可用，退回原来的实心底色，保证底栏依然清晰可读。
+     */
+    private void applyMaterial(ViewState state) {
+        boolean hyperMaterial = HyperMaterialUtils.isFeatureEnable(getContext())
+            && RomUtils.getHyperOsVersion() >= 2;
+
+        setCardBackgroundColor(state.glass && hyperMaterial
+            ? Color.TRANSPARENT
+            : getContext().getColor(R.color.switch_view_background_color));
+
+        if (hyperMaterial) setMaterial(state.materialConfig);
     }
 
-    public MaterialDayNightConfig getBloomStrokeDayNightConfig() {
-        MaterialToken lightToken = new MaterialToken.Builder(30, "frosted-pured-regular", "light")
+    /**
+     * 液态玻璃材质：磨砂模糊 + 玻璃描边。参数与 HyperOS 系统里的
+     * frosted 材质对齐，只是圆角和描边尺寸按两种形态各取一套。
+     *
+     * @param radius      材质自身的圆角，悬浮胶囊 30dp，贴地底栏 0
+     * @param lightStroke 浅色下的玻璃描边
+     * @param darkStroke  深色下的玻璃描边
+     */
+    private MaterialDayNightConfig buildGlassConfig(int radius, float[] lightStroke, float[] darkStroke) {
+        MaterialToken lightToken = new MaterialToken.Builder(radius, "frosted-pured-regular", "light")
             .setBlur(1, 1, 0, 40)
             .setColorBlend(ColorBlendToken.Pured_Regular_Light)
-            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Light)
+            .setBloomStroke(lightStroke)
             .build();
 
-        MaterialToken darkToken = new MaterialToken.Builder(30, "frosted-pured-extra-thick", "dark")
+        MaterialToken darkToken = new MaterialToken.Builder(radius, "frosted-pured-extra-thick", "dark")
             .setBlur(1, 1, 0, 40)
             .setColorBlend(ColorBlendToken.Pured_Extra_Thick_Dark)
-            .setBloomStroke(BloomStrokeToken.Glass_Stroke_Small_Dark)
+            .setBloomStroke(darkStroke)
             .build();
 
         return MaterialDayNightConfig.create(new MaterialDayNightToken(lightToken, darkToken));
     }
 
-    public MaterialDayNightConfig getDayNightConfig() {
-        return MaterialDayNightConfig.create(Mask.Pured_Regular);
+    /** 悬浮胶囊的玻璃材质：30dp 圆角 + 小尺寸描边。 */
+    public MaterialDayNightConfig getBloomStrokeDayNightConfig() {
+        return buildGlassConfig(30, BloomStrokeToken.Glass_Stroke_Small_Light, BloomStrokeToken.Glass_Stroke_Small_Dark);
+    }
+
+    /** 贴地底栏的玻璃材质：直角整条，用大尺寸描边才压得住。 */
+    public MaterialDayNightConfig getBottomGlassDayNightConfig() {
+        return buildGlassConfig(0, BloomStrokeToken.Glass_Stroke_Big_Light, BloomStrokeToken.Glass_Stroke_Big_Dark);
     }
 
     public int getPositionById(int itemId) {
@@ -341,6 +371,7 @@ public class SwitchView extends HyperCardView {
         float radius;
         boolean enableShadow;
         MaterialDayNightConfig materialConfig;
+        boolean glass;
 
         int dividerVisibility;
         int containerWidth, containerHeight, containerGravity;
