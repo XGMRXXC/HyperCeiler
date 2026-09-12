@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
@@ -120,10 +121,15 @@ class LiquidGlassBarView @JvmOverloads constructor(
                         .fillMaxWidth()
                         .wrapContentHeight()
                         .navigationBarsPadding()
-                        .padding(start = 12.dp, end = 12.dp, bottom = 30.dp),
+                        // 上下留白不能省：透镜折射/高光会画到药丸轮廓之外，
+                        // 高度 wrap_content 时会被裁掉（长按时上方那点切割就是它）
+                        .padding(start = 12.dp, end = 12.dp, top = 24.dp, bottom = 30.dp),
                     contentAlignment = Alignment.BottomCenter
                 ) {
                     FloatingBottomBar(
+                        // 每个 tab 64dp：外层是 IntrinsicSize.Min 且 tab 用 weight，
+                        // 不给宽度的话药丸会按 26dp 图标宽算，看起来短一截
+                        modifier = Modifier.width((tabs.size * 64 + 8).dp),
                         selectedIndex = index.coerceIn(0, tabs.lastIndex),
                         onSelected = { select(it, true) },
                         backdrop = backdrop,
