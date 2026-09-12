@@ -39,7 +39,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.ComposeView
@@ -85,13 +84,11 @@ class LiquidGlassBarView @JvmOverloads constructor(
     private val backdropVersion = mutableIntStateOf(0)
 
     private var preDrawSource: View? = null
-    private var activeBackdrop: NativeViewBackdrop? = null
     private val composeOwner = ComposeViewOwner()
     private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
-        // 抓取必须在绘制之外做，否则源视图正在被绘制、重入会抓到空
-        // （现象：刚切过来能渲染一秒，然后变纯色）。这里只发出请求，
-        // backdrop 会 post 到下一帧再抓，抓完回调触发重绘。
-        activeBackdrop?.requestCapture()
+        // 无条件递增：View.isDirty 在真机上基本一直是 false，靠它判断会导致
+        // 快照永不更新（现象：滑动时玻璃不跟、切页后还是旧背景）
+        backdropVersion.intValue++
         true
     }
 
@@ -114,12 +111,7 @@ class LiquidGlassBarView @JvmOverloads constructor(
 
             // 订阅版本号：底层内容动一次，这张玻璃就跟着重画一次
             backdropVersion.intValue
-            val backdrop = remember(source) {
-                NativeViewBackdrop(source).also { created ->
-                    activeBackdrop = created
-                    created.onCaptured = { backdropVersion.intValue++ }
-                }
-            }
+            val backdrop = remember(source) { NativeViewBackdrop(source) }
             val controller = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
             val index = selectedState.intValue
 
@@ -165,8 +157,7 @@ class LiquidGlassBarView @JvmOverloads constructor(
         val tabs = ArrayList<BarTab>(menu.size())
         for (i in 0 until menu.size()) {
             val item = menu.getItem(i)
-            // 必须用私有副本：View 版底栏还在用同一个 Drawable，
-            // 两边都改 bounds 会互相踩（按多了图标就花了）
+            // 私有副本：View 版底栏还在用同一个 Drawable，两边都改 bounds 会互相踩
             val icon = item.icon?.let { original ->
                 original.constantState?.newDrawable(resources)?.mutate() ?: original
             }
