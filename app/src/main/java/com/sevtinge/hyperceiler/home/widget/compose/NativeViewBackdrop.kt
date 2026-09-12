@@ -39,6 +39,42 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
 
     override val isCoordinatesDependent: Boolean = true
 
+    /**
+     * 解出"当前显示的那一页"。
+     *
+     * 本项目用的是 fan.viewpager.widget.ViewPager（v1）：页面是它的直接子视图、
+     * 左右并排，当前页的 left 区间包含 scrollX。放在 Kotlin 侧做，是为了跟绘制
+     * 用同一个对象 —— Java 侧设置源、Compose 侧绘制，跨层容易拿到不同步的旧值。
+     */
+    private fun resolveCurrentPage(root: View): View {
+        if (root !is android.view.ViewGroup) return root
+        val scrollX = root.scrollX
+        val verbose = dumpTick % 240 == 0
+        val info = if (verbose) StringBuilder() else null
+        var firstVisible: View? = null
+        for (i in 0 until root.childCount) {
+            val child = root.getChildAt(i)
+            if (info != null) {
+                info.append(" [").append(i).append(':').append(child.javaClass.simpleName)
+                    .append(" left=").append(child.left)
+                    .append(" tx=").append(child.translationX)
+                    .append(" w=").append(child.width)
+                    .append(" vis=").append(child.visibility).append(']')
+            }
+            if (child.width <= 0 || child.visibility != View.VISIBLE) continue
+            if (child.left <= scrollX && child.left + child.width > scrollX) return child
+            if (firstVisible == null) firstVisible = child
+        }
+        if (info != null) {
+            android.util.Log.w(
+                "NativeViewBackdrop",
+                "resolve root=" + root.javaClass.simpleName + " scrollX=" + scrollX +
+                    " children=" + root.childCount + info
+            )
+        }
+        return firstVisible ?: root
+    }
+
     override fun DrawScope.drawBackdrop(
         density: Density,
         coordinates: LayoutCoordinates?,
@@ -71,7 +107,10 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
             }
         }
 
-        val sourcePosition = IntArray(2).also(sourceView::getLocationInWindow)
+        // 每次都从源视图里解出"当前显示的那一页"，避免采到别的页
+        val target = resolveCurrentPage(sourceView)
+
+        val sourcePosition = IntArray(2).also(target::getLocationInWindow)
         val canvas = drawContext.canvas.nativeCanvas
         canvas.save()
         try {
@@ -81,7 +120,7 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
                 sourcePosition[0] - surfacePosition.x,
                 sourcePosition[1] - surfacePosition.y
             )
-            sourceView.draw(canvas)
+            target.draw(canvas)
         } finally {
             canvas.restore()
         }

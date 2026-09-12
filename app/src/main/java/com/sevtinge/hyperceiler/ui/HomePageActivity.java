@@ -126,37 +126,17 @@ public class HomePageActivity extends AppCompatActivity
     }
 
     /**
-     * 把 backdrop 的采样源换成"当前页"的根视图。
+     * 把底栏的采样源指向 pager。
      *
-     * ViewPager2 底层是 RecyclerView，offscreenPageLimit=3 会把三页都挂在它下面，
-     * 直接画整个 pager 拿到的永远是第一页 —— 实测在设置页/关于页时，玻璃采到的
-     * 依旧是主页那条应用列表。所以这里只认"横向位置与 pager 对齐、宽度约等于
-     * pager 宽"的那一页（离屏页会被横向推开，位置对不上）。
+     * 具体采哪一页由 NativeViewBackdrop 在绘制时解析：本项目用的是
+     * fan.viewpager.widget.ViewPager（v1），页面就是它的直接子视图、左右并排，
+     * 按 scrollX 即可定位当前页。放在绘制侧做是为了和绘制用同一个对象 ——
+     * 之前在 Activity 侧解析再传下去（FragmentManager 拿不到页面、按 ViewPager2
+     * 的 ViewHolder 也取不到），两边不同步，采到的始终是主页内容。
      */
     private void updateBackdropSource() {
         if (mSwitchManager == null || mViewPager == null) return;
-        View page = findCurrentPageView();
-        mSwitchManager.setBackdropView(page != null ? page : mViewPager);
-    }
-
-    @Nullable
-    private View findCurrentPageView() {
-        // ViewPager2 的页面由它自己的适配器托管，Activity 的 FragmentManager 里
-        // 拿不到（实测只有一个 fragment，getView() 还是整个窗口的 decor）。
-        // 规范做法：从 pager 内部的 RecyclerView 按当前页码取 ViewHolder 的 itemView。
-        if (!(mViewPager instanceof ViewGroup)) return null;
-        ViewGroup pager = mViewPager;
-        int position = mViewPager.getCurrentItem();
-        if (pager.getChildCount() == 0) return null;
-        View child = pager.getChildAt(0);
-        if (!(child instanceof RecyclerView)) return null;
-        RecyclerView.ViewHolder holder =
-            ((RecyclerView) child).findViewHolderForAdapterPosition(position);
-        View view = holder != null ? holder.itemView : null;
-        android.util.Log.w("HcBackdrop", "page=" + position
-            + " picked=" + (view == null ? "null" : view.getClass().getSimpleName())
-            + " size=" + (view == null ? "-" : view.getWidth() + "x" + view.getHeight()));
-        return view;
+        mSwitchManager.setBackdropView(mViewPager);
     }
 
     private void rebuildContentPages() {

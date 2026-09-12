@@ -182,6 +182,13 @@ class LiquidGlassBarView @JvmOverloads constructor(
 
     /** 玻璃要采样的那一层原生 View。 */
     fun setBackdropSource(view: View?) {
+        // 诊断：打印是谁设置了这个源、设成了什么
+        android.util.Log.w(
+            "LiquidGlassBarView",
+            "setBackdropSource view=" + (view?.javaClass?.simpleName ?: "null") +
+                " id=" + (view?.id ?: 0),
+            Exception("caller")
+        )
         sourceState.value = view
         preDrawSource?.let { old ->
             if (old.viewTreeObserver.isAlive) {
