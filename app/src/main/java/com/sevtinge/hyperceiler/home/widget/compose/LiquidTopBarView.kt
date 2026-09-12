@@ -99,6 +99,14 @@ class LiquidTopBarView(context: Context) : FrameLayout(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         composeOwner.attach()
+        // Compose 是从父链往上找 ViewTreeLifecycleOwner 的，只设在内部 ComposeView 上不够：
+        // 二级页面的 decor 上没有 owner，会直接抛 "not found from DecorView"。根视图也补上。
+        setViewTreeLifecycleOwner(composeOwner)
+        setViewTreeSavedStateRegistryOwner(composeOwner)
+        (rootView as? View)?.let { root ->
+            root.setViewTreeLifecycleOwner(composeOwner)
+            root.setViewTreeSavedStateRegistryOwner(composeOwner)
+        }
     }
 
     /** 这条带子只负责画，不参与触摸分发，否则会挡住下面页面的滑动。 */

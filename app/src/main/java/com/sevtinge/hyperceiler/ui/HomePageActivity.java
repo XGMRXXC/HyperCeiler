@@ -93,6 +93,8 @@ public class HomePageActivity extends AppCompatActivity
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 注册二级页面的 OS4 装饰实现（Compose 依赖都在 app 模块，core 只留接口）
+        com.sevtinge.hyperceiler.home.widget.compose.Os4SecondaryDecor.install();
         if (PersistConfig.isAprilFoolsThemeView) setTheme(R.style.HomePageAprilFoolsTheme);
         if (!OobeUtils.isProvisioned(this) && !OobeUtils.isDebugOobeMode(this)) {
             startActivity(new Intent(this, SplashActivity.class));
@@ -136,9 +138,6 @@ public class HomePageActivity extends AppCompatActivity
         // 液态玻璃底栏要采样"当前页"的内容，等布局完成后再解析一次
         mViewPager.post(this::updateBackdropSource);
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
-        setupLiquidTopBar();
-        setupLiquidBackButton();
-        watchSecondaryPages();
     }
 
     /**
@@ -219,17 +218,14 @@ public class HomePageActivity extends AppCompatActivity
      * 主页那三个标签（主页/设置/关于）不要：通过 Fragment 生命周期判断当前 resume 的是不是
      * 其中一个标签 Fragment，不是就说明进了二级菜单。
      */
-    private void watchSecondaryPages() {
-        getSupportFragmentManager().registerFragmentLifecycleCallbacks(
-            new FragmentManager.FragmentLifecycleCallbacks() {
-                @Override
-                public void onFragmentResumed(@NonNull FragmentManager fm, @NonNull Fragment fragment) {
-                    mSecondaryPage = !(fragment instanceof HomePageFragment
-                        || fragment instanceof SettingsPageFragment
-                        || fragment instanceof AboutPageFragment);
-                    updateOs4Overlays();
-                }
-            }, true);
+    /**
+     * 二级页面由 SubSettingLauncher 通过 Intent extra 标记
+     * （":settings:is_second_layer_page"），这是最准确的判据 —— 比按 Fragment 类名猜可靠。
+     */
+    private void setupSecondaryPageFlag() {
+        mSecondaryPage = getIntent() != null
+            && getIntent().getBooleanExtra(":settings:is_second_layer_page", false);
+        updateOs4Overlays();
     }
 
     private void updateOs4Overlays() {

@@ -188,6 +188,13 @@ class LiquidBackButtonView(context: Context) : FrameLayout(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         composeOwner.attach()
+        // 同 LiquidTopBarView：owner 必须沿着父链可见，否则 Compose 会在 decor 上找不到
+        setViewTreeLifecycleOwner(composeOwner)
+        setViewTreeSavedStateRegistryOwner(composeOwner)
+        (rootView as? View)?.let { root ->
+            root.setViewTreeLifecycleOwner(composeOwner)
+            root.setViewTreeSavedStateRegistryOwner(composeOwner)
+        }
     }
 
     override fun onDetachedFromWindow() {

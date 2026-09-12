@@ -18,6 +18,8 @@
  */
 package com.sevtinge.hyperceiler.dashboard.base;
 
+import com.sevtinge.hyperceiler.dashboard.SecondaryPageDecoration;
+
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -51,6 +53,8 @@ public class SettingsBaseActivity extends AppCompatActivity implements ActivityC
 
     protected void createUiFromIntent(Bundle savedInstanceState, Intent intent) {
         setContentView(R.layout.settings_sub);
+        // OS4 二级页面装饰（顶栏模糊 + 下滑后独立返回键），实现由 app 模块注册
+        SecondaryPageDecoration.apply(this, findViewById(android.R.id.content));
         String initialFragmentName = getInitialFragmentName(intent);
         if (!TextUtils.isEmpty(initialFragmentName)) {
             Fragment targetFragment = getTargetFragment(this, initialFragmentName, savedInstanceState);
