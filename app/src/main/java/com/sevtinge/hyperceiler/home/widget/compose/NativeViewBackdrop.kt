@@ -45,7 +45,12 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
     companion object {
         /** 调试：把抓到的快照写到外部缓存，用 adb pull 出来核对。 */
         private const val DEBUG_DUMP = false
+
+        /** 调试：判定 backdrop 绘制通路是否生效（涂红）。 */
+        private const val DEBUG_RED_BOX = false
     }
+
+    private val redPaint = Paint().apply { color = Color.RED }
 
     private var dumped = false
     private var loggedOnce = false
@@ -132,11 +137,14 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
         val native = drawContext.canvas.nativeCanvas
         val checkpoint = native.save()
         try {
-            val scale = 1f / downscaleFactor.coerceAtLeast(1)
-            // 之后所有坐标都按"内容坐标"（像素）来算
-            native.scale(scale, scale)
-            // 关键：偏移是 src - consumer。写成 consumer - src 会把快照画到屏幕外，
-            // 药丸里就只剩容器底色（看起来就是黑底）
+            if (DEBUG_RED_BOX) {
+                // 判定实验：直接把整块 backdrop 涂红。红块出现说明这条绘制通路是通的，
+                // 问题在快照或变换；不出现说明实现压根没生效。
+                native.drawRect(-4000f, -4000f, 4000f, 4000f, redPaint)
+                return
+            }
+            // 只平移，不缩放画布：套上 scale(1/downscaleFactor) 会把平移量一起缩放，
+            // 内容就被推到可见区之外（红块实验证明通路是好的，问题只在这里）。
             native.translate(
                 (sourceInWindow[0] - consumerInWindow.x),
                 (sourceInWindow[1] - consumerInWindow.y)
