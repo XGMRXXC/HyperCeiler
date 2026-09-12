@@ -85,12 +85,13 @@ class LiquidGlassBarView @JvmOverloads constructor(
     private val backdropVersion = mutableIntStateOf(0)
 
     private var preDrawSource: View? = null
+    private var activeBackdrop: NativeViewBackdrop? = null
     private val composeOwner = ComposeViewOwner()
     private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
-        // 不能靠 View.isDirty 判断：真机上它基本一直是 false，快照就永远不更新
-        // （现象：主页滑动玻璃不跟、切到设置/关于页还是旧背景）。这里无条件递增，
-        // 真正的时间节流交给 NativeViewBackdrop.record()。
-        backdropVersion.intValue++
+        // 抓取必须在绘制之外做，否则源视图正在被绘制、重入会抓到空
+        // （现象：刚切过来能渲染一秒，然后变纯色）。这里只发出请求，
+        // backdrop 会 post 到下一帧再抓，抓完回调触发重绘。
+        activeBackdrop?.requestCapture()
         true
     }
 
@@ -113,7 +114,12 @@ class LiquidGlassBarView @JvmOverloads constructor(
 
             // 订阅版本号：底层内容动一次，这张玻璃就跟着重画一次
             backdropVersion.intValue
-            val backdrop = remember(source) { NativeViewBackdrop(source) }
+            val backdrop = remember(source) {
+                NativeViewBackdrop(source).also { created ->
+                    activeBackdrop = created
+                    created.onCaptured = { backdropVersion.intValue++ }
+                }
+            }
             val controller = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
             val index = selectedState.intValue
 
@@ -125,13 +131,7 @@ class LiquidGlassBarView @JvmOverloads constructor(
                         .navigationBarsPadding()
                         // 上下留白不能省：透镜折射/高光会画到药丸轮廓之外，
                         // 高度 wrap_content 时会被裁掉（长按时上方那点切割就是它）
-                        .padding(start = 12.dp, end = 12.dp, top = 24.dp, bottom = 30.dp)
-                        // 在画药丸之前先把源视图重新录进 layer（只有版本变了才真录），
-                        // 这样玻璃采到的是完整的一帧，不会留下残影
-                        .drawWithContent {
-                            backdrop.record(backdropVersion.intValue)
-                            drawContent()
-                        },
+                        .padding(start = 12.dp, end = 12.dp, top = 24.dp, bottom = 30.dp),
                     contentAlignment = Alignment.BottomCenter
                 ) {
                     FloatingBottomBar(

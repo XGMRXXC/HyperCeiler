@@ -65,20 +65,39 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
     private var recordedVersion = Int.MIN_VALUE
     private var lastCaptureAt = 0L
+    private var capturePosted = false
+
+    /** 抓完一帧后回调，用来触发玻璃重绘。 */
+    var onCaptured: (() -> Unit)? = null
 
     /** 软件抓整屏很贵，滚动时按最小间隔节流。 */
     private val minIntervalMs = 70L
 
-    /** 版本号变化时重新抓一帧（调用方在 backdrop 绘制前带上当前版本）。 */
-    fun record(version: Int) {
-        if (version == recordedVersion) return
+    /**
+     * 请求抓一帧。
+     *
+     * **必须在绘制之外调用**（比如源视图的 OnPreDraw 里）。之前是在 backdrop 的
+     * 绘制过程中直接抓，而源视图此刻也在被绘制，重入绘制第一次侥幸成功、之后
+     * 一直抓到空 —— 现象就是"刚切过来能渲染一秒，然后变成纯色"。
+     * 这里 post 到下一帧再抓，抓完回调触发重绘。
+     */
+    fun requestCapture() {
+        if (capturePosted) return
         val now = SystemClock.uptimeMillis()
         if (now - lastCaptureAt < minIntervalMs) return
+        capturePosted = true
+        sourceView.post {
+            capturePosted = false
+            lastCaptureAt = SystemClock.uptimeMillis()
+            capture()
+            onCaptured?.invoke()
+        }
+    }
+
+    private fun capture() {
         val viewWidth = sourceView.width
         val viewHeight = sourceView.height
         if (viewWidth <= 0 || viewHeight <= 0) return
-        recordedVersion = version
-        lastCaptureAt = now
 
         val width = (viewWidth * captureScale).toInt().coerceAtLeast(1)
         val height = (viewHeight * captureScale).toInt().coerceAtLeast(1)
