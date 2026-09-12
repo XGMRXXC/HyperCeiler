@@ -173,6 +173,8 @@ class LiquidBackButtonView(context: Context) : FrameLayout(context) {
     }
 
     fun setButtonVisible(visible: Boolean) {
+        // Kotlin 侧日志不受 LSParanoid 混淆，可直接在 logcat 看
+        android.util.Log.w("Os4BackButton", "setButtonVisible=$visible ctx=${context.javaClass.simpleName}")
         if (visibleState.value != visible) {
             visibleState.value = visible
         }
@@ -187,6 +189,7 @@ class LiquidBackButtonView(context: Context) : FrameLayout(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        android.util.Log.w("Os4BackButton", "attached in ${context.javaClass.simpleName}")
         composeOwner.attach()
         // 同 LiquidTopBarView：owner 必须沿着父链可见，否则 Compose 会在 decor 上找不到
         setViewTreeLifecycleOwner(composeOwner)

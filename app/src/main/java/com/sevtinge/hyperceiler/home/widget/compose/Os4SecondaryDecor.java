@@ -67,10 +67,22 @@ public final class Os4SecondaryDecor implements SecondaryPageDecoration.Provider
         parent.addView(backButton, indexBeforeActionBar(parent, contentRoot), buttonParams);
 
         int threshold = (int) (24 * density);
-        contentRoot.getViewTreeObserver().addOnScrollChangedListener(() -> {
+        Runnable check = () -> {
             int offset = maxScrollOffset(contentRoot);
             backButton.setButtonVisible(offset > threshold);
-        });
+        };
+        // RecyclerView 靠移动子视图滚动，既不触发 ViewTreeObserver 的 scroll-changed，
+        // 也没法用一套监听同时覆盖 MIUIX 和 androidx 两种类型，所以用低频轮询读滚动量；
+        // 按钮一旦被移除（离开页面）就停止。
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable[] poll = new Runnable[1];
+        poll[0] = () -> {
+            if (!backButton.isAttachedToWindow()) return;
+            check.run();
+            handler.postDelayed(poll[0], 100);
+        };
+        handler.postDelayed(poll[0], 100);
+        contentRoot.getViewTreeObserver().addOnScrollChangedListener(check::run);
     }
 
     /** 插在 ActionBar 之前，保证 ActionBar 的标题浮在模糊层之上。 */

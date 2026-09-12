@@ -98,6 +98,7 @@ class LiquidTopBarView(context: Context) : FrameLayout(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        android.util.Log.w("Os4TopBar", "attached in ${context.javaClass.simpleName}")
         composeOwner.attach()
         // Compose 是从父链往上找 ViewTreeLifecycleOwner 的，只设在内部 ComposeView 上不够：
         // 二级页面的 decor 上没有 owner，会直接抛 "not found from DecorView"。根视图也补上。
