@@ -42,10 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -115,12 +112,7 @@ class LiquidGlassBarView @JvmOverloads constructor(
 
             // 订阅版本号：底层内容动一次，这张玻璃就跟着重画一次
             backdropVersion.intValue
-            val layer = rememberGraphicsLayer()
-            val density = LocalDensity.current
-            val layoutDirection = LocalLayoutDirection.current
-            val backdrop = remember(source, layer) {
-                NativeViewBackdrop(layer, source, density, layoutDirection)
-            }
+            val backdrop = remember(source) { NativeViewBackdrop(source) }
             val controller = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
             val index = selectedState.intValue
 
