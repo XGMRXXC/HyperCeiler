@@ -14,15 +14,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.CountDownTimer;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.lifecycle.LiveData;
 import androidx.preference.Preference;
@@ -44,8 +40,6 @@ import com.sevtinge.hyperceiler.home.task.AppInitializer;
 import com.sevtinge.hyperceiler.home.widget.NavigationStyle;
 import com.sevtinge.hyperceiler.home.widget.SwitchManager;
 import com.sevtinge.hyperceiler.home.widget.SwitchMediator;
-import com.sevtinge.hyperceiler.home.widget.compose.LiquidBackButtonView;
-import com.sevtinge.hyperceiler.home.widget.compose.LiquidTopBarView;
 import com.sevtinge.hyperceiler.provision.utils.NoticeProvider;
 import com.sevtinge.hyperceiler.provision.utils.ProvisionManager;
 import com.sevtinge.hyperceiler.settings.SettingsFragment;
@@ -60,7 +54,6 @@ import fan.appcompat.app.AlertDialog;
 import fan.appcompat.app.AppCompatActivity;
 import java.util.ArrayDeque;
 
-import fan.appcompat.app.ActionBar;
 import fan.preference.PreferenceFragment;
 import fan.provider.Settings;
 import fan.provision.OobeUtils;
@@ -72,12 +65,6 @@ public class HomePageActivity extends AppCompatActivity
     PreferenceFragment.OnPreferenceStartFragmentCallback {
 
     private static final String STATE_CURRENT_PAGE = "home_current_page";
-
-    private LiquidBackButtonView mBackButton;
-
-    /** 当前显示的是不是二级菜单（不是主页那三个标签）。 */
-    private boolean mSecondaryPage;
-    private LiquidTopBarView mTopBar;
 
     public ViewPager mViewPager;
     public HomeContentAdapter mContentAdapter;
@@ -93,8 +80,6 @@ public class HomePageActivity extends AppCompatActivity
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // 注册二级页面的 OS4 装饰实现（Compose 依赖都在 app 模块，core 只留接口）
-        com.sevtinge.hyperceiler.home.widget.compose.Os4SecondaryDecor.install();
         if (PersistConfig.isAprilFoolsThemeView) setTheme(R.style.HomePageAprilFoolsTheme);
         if (!OobeUtils.isProvisioned(this) && !OobeUtils.isDebugOobeMode(this)) {
             startActivity(new Intent(this, SplashActivity.class));
@@ -138,111 +123,6 @@ public class HomePageActivity extends AppCompatActivity
         // 液态玻璃底栏要采样"当前页"的内容，等布局完成后再解析一次
         mViewPager.post(this::updateBackdropSource);
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
-    }
-
-    /**
-     * OS4 风格的顶部背景模糊带：设置页的 ActionBar 是透明的，所以在它下面放一条
-     * 玻璃模糊带，滚动时内容就会在模糊里经过。带子只画不接收触摸。
-     */
-    private void setupLiquidTopBar() {
-        ViewGroup container = findViewById(R.id.container);
-        if (container == null) return;
-        mTopBar = new LiquidTopBarView(this);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.gravity = Gravity.TOP;
-        container.addView(mTopBar, params);
-        mTopBar.setBackdropSource(mViewPager);
-        mTopBar.post(() -> {
-            // 只覆盖收窄后的栏区域（状态栏 + 56dp），大标题那一段不需要模糊
-            int height = getStatusBarHeight()
-                + (int) (56 * getResources().getDisplayMetrics().density);
-            ViewGroup.LayoutParams lp = mTopBar.getLayoutParams();
-            lp.height = height;
-            mTopBar.setLayoutParams(lp);
-        });
-    }
-
-    private int getStatusBarHeight() {
-        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
-    }
-
-    /**
-     * OS4 的"下滑后独立返回键"：悬浮玻璃圆钮，页面下滑后淡入。
-     *
-     * 滚动量从当前页面的滚动容器实时取（computeVerticalScrollOffset，
-     * RecyclerView 和 NestedScrollView 都实现了），因此对所有页面通用。
-     */
-    private void setupLiquidBackButton() {
-        ViewGroup container = findViewById(R.id.container);
-        if (container == null) return;
-        float density = getResources().getDisplayMetrics().density;
-        mBackButton = new LiquidBackButtonView(this);
-        int size = (int) (LiquidBackButtonView.BUTTON_SIZE_DP * density);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(size, size);
-        params.gravity = Gravity.TOP | Gravity.START;
-        params.leftMargin = (int) (12 * density);
-        params.topMargin = getStatusBarHeight() + (int) (6 * density);
-        container.addView(mBackButton, params);
-        mBackButton.setBackdropSource(mViewPager);
-
-        int threshold = (int) (24 * density);
-        container.getViewTreeObserver().addOnScrollChangedListener(this::containerScrollCheck);
-    }
-
-    /** 取视图树里最大的纵向滚动量。 */
-    private int maxScrollOffset(View view) {
-        if (!(view instanceof ViewGroup)) {
-            return view.getScrollY();
-        }
-        ViewGroup group = (ViewGroup) view;
-        int max = view.getScrollY();
-        for (int i = 0; i < group.getChildCount(); i++) {
-            View child = group.getChildAt(i);
-            if (child.getVisibility() != View.VISIBLE) continue;
-            max = Math.max(max, maxScrollOffset(child));
-        }
-        // RecyclerView 这类靠移动子视图滚动，scrollY 恒为 0，
-        // 第一个子视图相对内容顶部的偏移就是滚动量（只用公开 API）
-        if (group.getChildCount() > 0) {
-            View first = group.getChildAt(0);
-            max = Math.max(max, group.getPaddingTop() - first.getTop());
-        }
-        return max;
-    }
-
-    /**
-     * 只在二级菜单里显示 OS4 顶栏效果。
-     *
-     * 主页那三个标签（主页/设置/关于）不要：通过 Fragment 生命周期判断当前 resume 的是不是
-     * 其中一个标签 Fragment，不是就说明进了二级菜单。
-     */
-    /**
-     * 二级页面由 SubSettingLauncher 通过 Intent extra 标记
-     * （":settings:is_second_layer_page"），这是最准确的判据 —— 比按 Fragment 类名猜可靠。
-     */
-    private void setupSecondaryPageFlag() {
-        mSecondaryPage = getIntent() != null
-            && getIntent().getBooleanExtra(":settings:is_second_layer_page", false);
-        updateOs4Overlays();
-    }
-
-    private void updateOs4Overlays() {
-        containerScrollCheck();
-    }
-
-    private void containerScrollCheck() {
-        ViewGroup container = findViewById(R.id.container);
-        if (container == null) return;
-        int threshold = (int) (24 * getResources().getDisplayMetrics().density);
-        boolean scrolled = maxScrollOffset(container) > threshold;
-        if (mTopBar != null) {
-            mTopBar.setStripVisible(mSecondaryPage);
-        }
-        if (mBackButton != null) {
-            mBackButton.setButtonVisible(mSecondaryPage && scrolled);
-        }
     }
 
     /**
