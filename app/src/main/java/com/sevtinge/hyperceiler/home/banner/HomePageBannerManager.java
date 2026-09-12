@@ -179,13 +179,10 @@ public class HomePageBannerManager {
     }
 
     private static BannerBean createWarningBannerIfNeeded(Context context) {
-        if (!SignUtils.isSignCheckPass(context)) {
-            return createWarningBanner(
-                "warning_sign",
-                context.getString(R.string.headtip_warn_sign_verification_failed),
-                null
-            );
-        }
+        // 原来第一支是 "签名校验失败"（!SignUtils.isSignCheckPass → warning_sign）。
+        // 这个 fork 用自己的密钥签名，官方签名校验必然不通过，于是每次进主页都挂一条红条，
+        // 而实际上并没有风险，所以去掉这一支。非官方 ROM、框架问题、系统版本不支持这三支
+        // 保留，它们仍然是有用的信息。
         if (isUnofficialRom(context)) {
             return createWarningBanner(
                 "warning_rom",
