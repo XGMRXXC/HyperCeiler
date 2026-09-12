@@ -30,6 +30,13 @@ import top.yukonga.miuix.kmp.blur.Backdrop
  */
 class NativeViewBackdrop(private val sourceView: View) : Backdrop {
 
+    private var dumpTick = 0
+
+    private companion object {
+        /** 调试：把"抓到的源视图"另存到外部缓存，用 adb pull 核对抓的是哪一页。 */
+        const val DEBUG_DUMP = false
+    }
+
     override val isCoordinatesDependent: Boolean = true
 
     override fun DrawScope.drawBackdrop(
@@ -40,6 +47,29 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
     ) {
         val surfacePosition = coordinates?.positionInWindow() ?: return
         if (!sourceView.isAttachedToWindow || sourceView.width <= 0 || sourceView.height <= 0) return
+
+        if (DEBUG_DUMP && dumpTick++ % 20 == 0) {
+            runCatching {
+                val scale = 0.4f
+                val bmp = android.graphics.Bitmap.createBitmap(
+                    (sourceView.width * scale).toInt().coerceAtLeast(1),
+                    (sourceView.height * scale).toInt().coerceAtLeast(1),
+                    android.graphics.Bitmap.Config.ARGB_8888
+                )
+                val c = android.graphics.Canvas(bmp)
+                c.scale(scale, scale)
+                sourceView.draw(c)
+                val dir = sourceView.context.getExternalCacheDir() ?: return@runCatching
+                java.io.FileOutputStream(java.io.File(dir, "backdrop.png")).use {
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                android.util.Log.w(
+                    "NativeViewBackdrop",
+                    "dumped source=" + sourceView.javaClass.simpleName +
+                        " size=" + sourceView.width + "x" + sourceView.height
+                )
+            }
+        }
 
         val sourcePosition = IntArray(2).also(sourceView::getLocationInWindow)
         val canvas = drawContext.canvas.nativeCanvas

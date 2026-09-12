@@ -19,6 +19,7 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.lifecycle.LiveData;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
@@ -140,43 +141,22 @@ public class HomePageActivity extends AppCompatActivity
 
     @Nullable
     private View findCurrentPageView() {
+        // ViewPager2 的页面由它自己的适配器托管，Activity 的 FragmentManager 里
+        // 拿不到（实测只有一个 fragment，getView() 还是整个窗口的 decor）。
+        // 规范做法：从 pager 内部的 RecyclerView 按当前页码取 ViewHolder 的 itemView。
         if (!(mViewPager instanceof ViewGroup)) return null;
         ViewGroup pager = mViewPager;
-        int[] pagerLocation = new int[2];
-        pager.getLocationOnScreen(pagerLocation);
-
-        View best = null;
-        int bestDepth = Integer.MAX_VALUE;
-        ArrayDeque<View> queue = new ArrayDeque<>();
-        ArrayDeque<Integer> depths = new ArrayDeque<>();
-        for (int i = 0; i < pager.getChildCount(); i++) {
-            queue.add(pager.getChildAt(i));
-            depths.add(1);
-        }
-        while (!queue.isEmpty()) {
-            View view = queue.poll();
-            Integer depth = depths.poll();
-            if (view == null || depth == null) continue;
-            if (view.getWidth() <= 0 || view.getHeight() <= 0 || !view.isShown()) continue;
-
-            int[] location = new int[2];
-            view.getLocationOnScreen(location);
-            boolean aligned = Math.abs(location[0] - pagerLocation[0]) <= 2;
-            boolean pageSized = Math.abs(view.getWidth() - pager.getWidth()) <= 2;
-            if (aligned && pageSized && depth < bestDepth) {
-                best = view;
-                bestDepth = depth;
-            }
-
-            if (view instanceof ViewGroup) {
-                ViewGroup group = (ViewGroup) view;
-                for (int i = 0; i < group.getChildCount(); i++) {
-                    queue.add(group.getChildAt(i));
-                    depths.add(depth + 1);
-                }
-            }
-        }
-        return best;
+        int position = mViewPager.getCurrentItem();
+        if (pager.getChildCount() == 0) return null;
+        View child = pager.getChildAt(0);
+        if (!(child instanceof RecyclerView)) return null;
+        RecyclerView.ViewHolder holder =
+            ((RecyclerView) child).findViewHolderForAdapterPosition(position);
+        View view = holder != null ? holder.itemView : null;
+        android.util.Log.w("HcBackdrop", "page=" + position
+            + " picked=" + (view == null ? "null" : view.getClass().getSimpleName())
+            + " size=" + (view == null ? "-" : view.getWidth() + "x" + view.getHeight()));
+        return view;
     }
 
     private void rebuildContentPages() {
