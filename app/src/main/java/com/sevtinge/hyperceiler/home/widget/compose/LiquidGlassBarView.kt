@@ -39,9 +39,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -111,7 +115,12 @@ class LiquidGlassBarView @JvmOverloads constructor(
 
             // 订阅版本号：底层内容动一次，这张玻璃就跟着重画一次
             backdropVersion.intValue
-            val backdrop = remember(source) { NativeViewBackdrop(source) }
+            val layer = rememberGraphicsLayer()
+            val density = LocalDensity.current
+            val layoutDirection = LocalLayoutDirection.current
+            val backdrop = remember(source, layer) {
+                NativeViewBackdrop(layer, source, density, layoutDirection)
+            }
             val controller = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
             val index = selectedState.intValue
 
@@ -123,7 +132,13 @@ class LiquidGlassBarView @JvmOverloads constructor(
                         .navigationBarsPadding()
                         // 上下留白不能省：透镜折射/高光会画到药丸轮廓之外，
                         // 高度 wrap_content 时会被裁掉（长按时上方那点切割就是它）
-                        .padding(start = 12.dp, end = 12.dp, top = 24.dp, bottom = 30.dp),
+                        .padding(start = 12.dp, end = 12.dp, top = 24.dp, bottom = 30.dp)
+                        // 在画药丸之前先把源视图重新录进 layer（只有版本变了才真录），
+                        // 这样玻璃采到的是完整的一帧，不会留下残影
+                        .drawWithContent {
+                            backdrop.record(backdropVersion.intValue)
+                            drawContent()
+                        },
                     contentAlignment = Alignment.BottomCenter
                 ) {
                     FloatingBottomBar(
@@ -157,7 +172,12 @@ class LiquidGlassBarView @JvmOverloads constructor(
         val tabs = ArrayList<BarTab>(menu.size())
         for (i in 0 until menu.size()) {
             val item = menu.getItem(i)
-            tabs.add(BarTab(item.itemId, item.icon, item.title ?: ""))
+            // 必须用私有副本：View 版底栏还在用同一个 Drawable，
+            // 两边都改 bounds 会互相踩（按多了图标就花了）
+            val icon = item.icon?.let { original ->
+                original.constantState?.newDrawable(resources)?.mutate() ?: original
+            }
+            tabs.add(BarTab(item.itemId, icon, item.title ?: ""))
         }
         tabsState.value = tabs
     }
