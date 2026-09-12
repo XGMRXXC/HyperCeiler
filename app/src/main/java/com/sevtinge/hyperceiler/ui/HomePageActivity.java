@@ -14,6 +14,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.CountDownTimer;
+import android.view.View;
+import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -49,6 +51,8 @@ import java.util.List;
 
 import fan.appcompat.app.AlertDialog;
 import fan.appcompat.app.AppCompatActivity;
+import java.util.ArrayDeque;
+
 import fan.preference.PreferenceFragment;
 import fan.provider.Settings;
 import fan.provision.OobeUtils;
@@ -114,10 +118,65 @@ public class HomePageActivity extends AppCompatActivity
         // 触发一次，把用户选的样式覆盖成贴地底栏。
 
         mViewPager = findViewById(R.id.vp_fragments);
-        // 液态玻璃底栏需要采样它背后的页面内容
-        mSwitchManager.setBackdropView(mViewPager);
         rebuildContentPages();
+        // 液态玻璃底栏要采样"当前页"的内容，等布局完成后再解析一次
+        mViewPager.post(this::updateBackdropSource);
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
+    }
+
+    /**
+     * 把 backdrop 的采样源换成"当前页"的根视图。
+     *
+     * ViewPager2 底层是 RecyclerView，offscreenPageLimit=3 会把三页都挂在它下面，
+     * 直接画整个 pager 拿到的永远是第一页 —— 实测在设置页/关于页时，玻璃采到的
+     * 依旧是主页那条应用列表。所以这里只认"横向位置与 pager 对齐、宽度约等于
+     * pager 宽"的那一页（离屏页会被横向推开，位置对不上）。
+     */
+    private void updateBackdropSource() {
+        if (mSwitchManager == null || mViewPager == null) return;
+        View page = findCurrentPageView();
+        mSwitchManager.setBackdropView(page != null ? page : mViewPager);
+    }
+
+    @Nullable
+    private View findCurrentPageView() {
+        if (!(mViewPager instanceof ViewGroup)) return null;
+        ViewGroup pager = mViewPager;
+        int[] pagerLocation = new int[2];
+        pager.getLocationOnScreen(pagerLocation);
+
+        View best = null;
+        int bestDepth = Integer.MAX_VALUE;
+        ArrayDeque<View> queue = new ArrayDeque<>();
+        ArrayDeque<Integer> depths = new ArrayDeque<>();
+        for (int i = 0; i < pager.getChildCount(); i++) {
+            queue.add(pager.getChildAt(i));
+            depths.add(1);
+        }
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            Integer depth = depths.poll();
+            if (view == null || depth == null) continue;
+            if (view.getWidth() <= 0 || view.getHeight() <= 0 || !view.isShown()) continue;
+
+            int[] location = new int[2];
+            view.getLocationOnScreen(location);
+            boolean aligned = Math.abs(location[0] - pagerLocation[0]) <= 2;
+            boolean pageSized = Math.abs(view.getWidth() - pager.getWidth()) <= 2;
+            if (aligned && pageSized && depth < bestDepth) {
+                best = view;
+                bestDepth = depth;
+            }
+
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    queue.add(group.getChildAt(i));
+                    depths.add(depth + 1);
+                }
+            }
+        }
+        return best;
     }
 
     private void rebuildContentPages() {
@@ -173,6 +232,10 @@ public class HomePageActivity extends AppCompatActivity
         public void onPageSelected(int position) {
             super.onPageSelected(position);
             mSwitchManager.setSelectedPosition(position, true);
+            // 换页后重新解析采样源，否则玻璃还是上一页的内容
+            if (mViewPager != null) {
+                mViewPager.post(HomePageActivity.this::updateBackdropSource);
+            }
         }
     }
 
@@ -183,6 +246,9 @@ public class HomePageActivity extends AppCompatActivity
         // 备份恢复等外部改动可能在别处写入样式，回到前台时对齐一次
         if (mSwitchManager != null) {
             mSwitchManager.setStyle(NavigationStyle.fromIndex(AppSettingsStore.getNavStyleIndex(this)));
+            if (mViewPager != null) {
+                mViewPager.post(this::updateBackdropSource);
+            }
         }
     }
 
