@@ -78,23 +78,39 @@ jobs:
           path: app/build/outputs/apk/canary/*.apk
           compression-level: 9
 
-      # Rolling prerelease tagged `dev-build`: the download URL never changes.
-      # The asset is renamed to a fixed name so --clobber replaces it instead of
-      # accumulating one asset per build.
-      - name: Publish to dev-build release
+      # One rolling release, updated in place on every dev push. It is published
+      # as a normal release (not a pre-release), so it shows up on the repo's
+      # Releases page as the latest one.
+      #
+      # GitHub requires every release to be anchored to a tag, so "no tags" here
+      # means: always reuse this one fixed tag and never create a new tag per
+      # build. The download URL therefore stays reachable, but note that the
+      # asset name itself carries the version, so that URL changes per build.
+      - name: Publish to the canary release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/canary/*.apk | head -n1)
           NAME=$(basename "$APK")
+          # HyperCeiler-<versionName>-<shortSha>-r<versionCode>-canary.apk
+          #              -> HyperCeiler-canary-<versionName>-r<versionCode>.apk
+          VER=$(printf '%s' "$NAME" | sed -E 's/^HyperCeiler-(.+)-[0-9a-f]+-r([0-9]+)-canary\.apk$/\1-r\2/')
+          ASSET="HyperCeiler-canary-${VER}.apk"
           SHA=$(shasum -a 256 "$APK" | awk '{print $1}')
-          NOTES=$(printf 'Automated canary build.\n\n- commit: `%s`\n- APK: `%s`\n- sha256: `%s`\n\nDebug-signed; uninstall the official build before installing.\n' "$GITHUB_SHA" "$NAME" "$SHA")
-          cp "$APK" HyperCeiler-dev-canary.apk
+          NOTES=$(printf 'Automated canary build.\n\n- commit: `%s`\n- APK: `%s`\n- sha256: `%s`\n\nDebug-signed; uninstall the official build before installing.\n' "$GITHUB_SHA" "$ASSET" "$SHA")
+          cp "$APK" "$ASSET"
           if gh release view dev-build >/dev/null 2>&1; then
-            gh release edit dev-build --notes "$NOTES"
+            gh release edit dev-build --prerelease=false --latest \
+              --title "HyperCeiler canary ${VER}" --notes "$NOTES"
+            # Every build has its own asset name, so --clobber alone would let
+            # old APKs pile up on the release; keep only the newest one.
+            for old in $(gh release view dev-build --json assets -q '.assets[].name'); do
+              [ "$old" = "$ASSET" ] || gh release delete-asset dev-build "$old" --yes
+            done
           else
-            gh release create dev-build --prerelease --title "Dev build (canary)" --notes "$NOTES"
+            gh release create dev-build --latest \
+              --title "HyperCeiler canary ${VER}" --notes "$NOTES"
           fi
-          gh release upload dev-build HyperCeiler-dev-canary.apk --clobber
+          gh release upload dev-build "$ASSET" --clobber
           echo "release: $(gh release view dev-build --json url -q .url)"
