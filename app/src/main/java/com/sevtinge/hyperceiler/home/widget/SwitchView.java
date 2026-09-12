@@ -520,11 +520,18 @@ public class SwitchView extends HyperCardView implements SensorEventListener {
         boolean hyperMaterial = HyperMaterialUtils.isFeatureEnable(getContext())
             && RomUtils.getHyperOsVersion() >= 2;
 
-        setCardBackgroundColor(state.glass && hyperMaterial
+        // 液态玻璃样式自己把整块药丸画出来（背后快照 + 模糊 + 折射 + 色散 + 高光），
+        // 系统的 HyperMaterial 会盖在自绘内容之上，所以这条样式不用它。
+        boolean useMaterial = hyperMaterial && !state.glassOverlay;
+
+        setCardBackgroundColor(state.glass && useMaterial
             ? Color.TRANSPARENT
             : getContext().getColor(R.color.switch_view_background_color));
+        if (state.glassOverlay) {
+            setCardBackgroundColor(Color.TRANSPARENT);
+        }
 
-        if (hyperMaterial) setMaterial(state.materialConfig);
+        if (useMaterial) setMaterial(state.materialConfig);
     }
 
     /**
@@ -832,12 +839,19 @@ public class SwitchView extends HyperCardView implements SensorEventListener {
     @Override
     protected void dispatchDraw(Canvas canvas) {
         if (mCurrentStyle == NavigationStyle.LIQUID_GLASS) {
-            // 背景快照 + AGSL 折射这条路的代码在 LiquidGlassOverlay 里，但设备上
-            // 画出来只有一层平色（快照本身是好的，见那个类里的 DEBUG_DUMP_BACKDROP），
-            // 暂时停用，先用渐变高光保证观感。下一步走 Compose + miuix-blur 重做。
-            drawGlassHighlights(canvas);
+            // 先画自己抓的背景快照（AGSL 模糊+折射/色散），再画图标，
+            // 最后用渐变高光补一层镜片高光
+            if (mGlassBackdrop != null) {
+                mGlassBackdrop.capture(this, getWidth(), getHeight());
+                mGlassBackdrop.draw(canvas, getWidth(), getHeight(), mLiquidState.radius,
+                    mLightAngle, mTouchX, mTouchY, mTouchAlphaSpring.get(),
+                    mPressSpring.get(), mDispersionSpring.get(), isNight());
+            }
         }
         super.dispatchDraw(canvas);
+        if (mCurrentStyle == NavigationStyle.LIQUID_GLASS) {
+            drawGlassHighlights(canvas);
+        }
     }
 
     /** 底栏背后要采样的那一层（通常是 ViewPager）。 */

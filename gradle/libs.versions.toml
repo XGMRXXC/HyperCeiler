@@ -18,6 +18,10 @@ viewpager2 = "1.1.0"
 # UI Libraries
 miuix = "1.0.13.0"
 
+# Compose / Miuix Compose（液态玻璃底栏用；版本与 KernelSU 对齐）
+compose-bom = "2026.08.00"
+miuix-compose = "0.9.3"
+
 # Xposed & Hooks
 xposed-api = "102.0.0"
 xposed-service = "102.0.0"
@@ -82,10 +86,20 @@ hyperfocusapi = { module = "com.github.ghhccghk:HyperFocusApi", version.ref = "h
 lunarcalendar = { module = "com.xhinliang:LunarCalendar", version.ref = "lunarcalendar" }
 superlyricapi = { module = "com.github.HChenX:SuperLyricApi", version.ref = "superLyricApi" }
 
+# Compose / Miuix Compose
+androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+androidx-compose-runtime = { module = "androidx.compose.runtime:runtime" }
+androidx-compose-foundation = { module = "androidx.compose.foundation:foundation" }
+androidx-compose-ui = { module = "androidx.compose.ui:ui" }
+androidx-compose-animation = { module = "androidx.compose.animation:animation" }
+miuix-compose-blur = { module = "top.yukonga.miuix.kmp:miuix-blur-android", version.ref = "miuix-compose" }
+miuix-compose-ui = { module = "top.yukonga.miuix.kmp:miuix-ui-android", version.ref = "miuix-compose" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 lsparanoid = { id = "org.lsposed.lsparanoid", version.ref = "lsparanoid" }
 
 [bundles]

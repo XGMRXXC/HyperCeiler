@@ -10,6 +10,9 @@ import java.util.TimeZone
 
 plugins {
     alias(libs.plugins.android.application)
+    // AGP 9 自带 Kotlin 支持，不能再 apply org.jetbrains.kotlin.android；
+    // Compose 只需要额外的编译器插件
+    alias(libs.plugins.kotlin.compose)
 }
 
 val apkId = "HyperCeiler"
@@ -76,6 +79,7 @@ android {
     buildFeatures {
         aidl = true
         buildConfig = true
+        compose = true
     }
 
     androidResources {
@@ -197,6 +201,15 @@ dependencies {
     implementation(libs.expansion)
     implementation(projects.library.core)
     implementation(projects.library.common)
+
+    // 液态玻璃底栏：Compose + Miuix Compose（blur 提供 lens/色散/重力高光）
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.runtime)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.animation)
+    implementation(libs.miuix.compose.blur)
+    implementation(libs.miuix.compose.ui)
 
     api (libs.room.runtime)
     // FTS 支持

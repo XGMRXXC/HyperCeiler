@@ -58,12 +58,24 @@ public final class LiquidGlassOverlay {
     /** 折射带宽度（px）与折射位移（px）。 */
     private static final float REFRACT_HEIGHT = 40f;
     private static final float REFRACT_AMOUNT = 26f;
-    private static final float BLUR_RADIUS = 10f;
+
+    /**
+     * 快照的降采样倍率。
+     *
+     * 原生分辨率下（650×208）几个像素的模糊根本看不出来；miuix-blur 也是先把
+     * backdrop 降采样再模糊的。降到 1/4 后，同样的 9 抽头等效覆盖 4 倍范围，
+     * 才有毛玻璃的观感，而且采样更便宜。
+     */
+    private static final float DOWNSCALE = 4f;
+
+    /** 在降采样后的快照上做 9 抽头模糊的半径（源像素）。 */
+    private static final float BLUR_RADIUS = 8f;
 
     private static final String SHADER_SRC =
         "uniform shader content;\n"
             + "uniform float2 uSize;\n"
             + "uniform float uRadius;\n"
+            + "uniform float uScale;\n"
             + "uniform float uRefractHeight;\n"
             + "uniform float uRefractAmount;\n"
             + "uniform float uBlur;\n"
@@ -80,17 +92,18 @@ public final class LiquidGlassOverlay {
             + "}\n"
             + "\n"
             + "half4 blur9(float2 p) {\n"
+            + "    float2 q = p * uScale;\n"
             + "    float d = uBlur;\n"
             + "    float e = d * 0.7071;\n"
-            + "    half4 s = content.eval(p) * 0.25;\n"
-            + "    s = s + content.eval(p + float2(d, 0.0)) * 0.125;\n"
-            + "    s = s + content.eval(p - float2(d, 0.0)) * 0.125;\n"
-            + "    s = s + content.eval(p + float2(0.0, d)) * 0.125;\n"
-            + "    s = s + content.eval(p - float2(0.0, d)) * 0.125;\n"
-            + "    s = s + content.eval(p + float2(e, e)) * 0.0625;\n"
-            + "    s = s + content.eval(p + float2(e, 0.0 - e)) * 0.0625;\n"
-            + "    s = s + content.eval(p - float2(e, e)) * 0.0625;\n"
-            + "    s = s + content.eval(p - float2(e, 0.0 - e)) * 0.0625;\n"
+            + "    half4 s = content.eval(q) * 0.25;\n"
+            + "    s = s + content.eval(q + float2(d, 0.0)) * 0.125;\n"
+            + "    s = s + content.eval(q - float2(d, 0.0)) * 0.125;\n"
+            + "    s = s + content.eval(q + float2(0.0, d)) * 0.125;\n"
+            + "    s = s + content.eval(q - float2(0.0, d)) * 0.125;\n"
+            + "    s = s + content.eval(q + float2(e, e)) * 0.0625;\n"
+            + "    s = s + content.eval(q + float2(e, 0.0 - e)) * 0.0625;\n"
+            + "    s = s + content.eval(q - float2(e, e)) * 0.0625;\n"
+            + "    s = s + content.eval(q - float2(e, 0.0 - e)) * 0.0625;\n"
             + "    return s;\n"
             + "}\n"
             + "\n"
@@ -132,7 +145,8 @@ public final class LiquidGlassOverlay {
             + "    float touch = uTouchAlpha\n"
             + "        * (1.0 - smoothstep(0.0, uSize.y * 0.8, distance(coord, uTouch)));\n"
             + "    float glow = spec * 0.35 + touch * 0.25 + uPress * 0.05;\n"
-            + "    fill = fill + float3(glow, glow, glow);\n"
+            + "    float edge = 1.0 - smoothstep(0.0, 2.5, depth);\n"
+            + "    fill = fill + float3(glow, glow, glow) + float3(edge * 0.18, edge * 0.18, edge * 0.18);\n"
             + "\n"
             + "    return half4(clamp(fill, 0.0, 1.0), inside);\n"
             + "}\n";
@@ -142,8 +156,16 @@ public final class LiquidGlassOverlay {
     /** 调试：把抓到的背景快照写到外部缓存目录，方便 adb pull 出来核对。 */
     private static final boolean DEBUG_DUMP_BACKDROP = true;
 
+    /**
+     * 调试二分法第一步：把快照**原样**画进药丸（不过着色器）。
+     * 如果这一步能看到背后的内容，说明"抓→画"这条路是通的，
+     * 问题只出在 AGSL 采样；如果还是平色，说明压根没画上。
+     */
+    private static final boolean DEBUG_DRAW_RAW_BITMAP = false;
+
     private final Context mContext;
     private boolean mDumped;
+    private boolean mLoggedDraw;
 
     private RuntimeShader mShader;
     private boolean mFailed;
@@ -179,9 +201,12 @@ public final class LiquidGlassOverlay {
         mLastCapture = now;
 
         try {
-            if (mBitmap == null || mBitmap.getWidth() != width || mBitmap.getHeight() != height) {
+            int scaledWidth = Math.max(1, Math.round(width / DOWNSCALE));
+            int scaledHeight = Math.max(1, Math.round(height / DOWNSCALE));
+            if (mBitmap == null || mBitmap.getWidth() != scaledWidth
+                || mBitmap.getHeight() != scaledHeight) {
                 releaseBitmap();
-                mBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                mBitmap = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888);
                 mBitmapCanvas = new Canvas(mBitmap);
                 mBitmapShader = new BitmapShader(mBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
             }
@@ -189,6 +214,7 @@ public final class LiquidGlassOverlay {
             anchor.getLocationInWindow(mAnchorLocation);
             mSource.getLocationInWindow(mSourceLocation);
             int save = mBitmapCanvas.save();
+            mBitmapCanvas.scale(1f / DOWNSCALE, 1f / DOWNSCALE);
             mBitmapCanvas.translate(
                 mSourceLocation[0] - mAnchorLocation[0],
                 mSourceLocation[1] - mAnchorLocation[1]);
@@ -209,8 +235,24 @@ public final class LiquidGlassOverlay {
     public void draw(Canvas canvas, float width, float height, float radius,
                      float lightAngle, float touchX, float touchY, float touchAlpha,
                      float press, float dispersion, boolean night) {
+        if (!mLoggedDraw) {
+            mLoggedDraw = true;
+            android.util.Log.w(TAG, "draw: failed=" + mFailed + " bitmap=" + mBitmap
+                + " bitmapSize=" + (mBitmap == null ? "-" : mBitmap.getWidth() + "x" + mBitmap.getHeight())
+                + " scale=" + (1f / DOWNSCALE) + " blur=" + BLUR_RADIUS
+                + " pill=" + width + "x" + height);
+        }
         if (mFailed || mBitmap == null || mBitmapShader == null) return;
         if (width <= 0f || height <= 0f) return;
+
+        if (DEBUG_DRAW_RAW_BITMAP) {
+            // 二分法第一步：原图直接铺上去，看能不能看到背后的内容
+            mPaint.setShader(null);
+            mPaint.setAlpha(255);
+            mPaint.setFilterBitmap(true);
+            canvas.drawBitmap(mBitmap, 0f, 0f, mPaint);
+            return;
+        }
 
         if (mShader == null) {
             try {
@@ -225,6 +267,7 @@ public final class LiquidGlassOverlay {
         mShader.setInputShader("content", mBitmapShader);
         mShader.setFloatUniform("uSize", width, height);
         mShader.setFloatUniform("uRadius", Math.min(radius, Math.min(width, height) * 0.5f));
+        mShader.setFloatUniform("uScale", 1f / DOWNSCALE);
         mShader.setFloatUniform("uRefractHeight", REFRACT_HEIGHT);
         mShader.setFloatUniform("uRefractAmount", REFRACT_AMOUNT);
         mShader.setFloatUniform("uBlur", BLUR_RADIUS);
