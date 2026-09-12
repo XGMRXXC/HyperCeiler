@@ -113,7 +113,7 @@ public class SwitchView extends HyperCardView {
             mSystemBottomInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
             // 收到 Insets 更新后，主动刷新一次当前样式，以应用正确的 Padding/Margin
             if (mCurrentStyle != null) {
-                applyStyleState(mCurrentStyle == NavigationStyle.CAPSULE_ICON ? mCapsuleState : mBottomState);
+                applyStyleState(stateFor(mCurrentStyle));
             }
             return insets;
         });
@@ -294,7 +294,7 @@ public class SwitchView extends HyperCardView {
 
         // 刷新一下状态
         if (mCurrentStyle != null) {
-            applyStyleState(mCurrentStyle == NavigationStyle.CAPSULE_ICON ? mCapsuleState : mBottomState);
+            applyStyleState(stateFor(mCurrentStyle));
         }
 
         post(() -> setSelectedTab(Math.max(0, mSelectedPosition), false));
