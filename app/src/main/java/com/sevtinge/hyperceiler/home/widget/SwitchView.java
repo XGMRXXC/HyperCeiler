@@ -39,6 +39,12 @@ import fan.theme.token.MaterialToken;
 
 public class SwitchView extends HyperCardView {
 
+    /**
+     * 液态玻璃的背景模糊半径（dp）。原来的 40dp 在深色下几乎看不出磨砂感，
+     * 调大到 60dp 才有「隔着一层毛玻璃」的效果。
+     */
+    private static final int GLASS_BLUR_RADIUS_DP = 60;
+
     // --- 内部视图 ---
     private View mDividerLine;
     private LinearLayout mTabContainer;
@@ -321,15 +327,15 @@ public class SwitchView extends HyperCardView {
      * @param darkStroke  深色下的玻璃描边
      */
     private MaterialDayNightConfig buildGlassConfig(int radius, float[] lightStroke, float[] darkStroke) {
-        MaterialToken lightToken = new MaterialToken.Builder(radius, "frosted-pured-regular", "light")
-            .setBlur(1, 1, 0, 40)
-            .setColorBlend(ColorBlendToken.Pured_Regular_Light)
+        MaterialToken lightToken = new MaterialToken.Builder(radius, "frosted-pured-thin", "light")
+            .setBlur(1, 1, 0, GLASS_BLUR_RADIUS_DP)
+            .setColorBlend(ColorBlendToken.Pured_Thin_Light)
             .setBloomStroke(lightStroke)
             .build();
 
-        MaterialToken darkToken = new MaterialToken.Builder(radius, "frosted-pured-extra-thick", "dark")
-            .setBlur(1, 1, 0, 40)
-            .setColorBlend(ColorBlendToken.Pured_Extra_Thick_Dark)
+        MaterialToken darkToken = new MaterialToken.Builder(radius, "frosted-pured-thin", "dark")
+            .setBlur(1, 1, 0, GLASS_BLUR_RADIUS_DP)
+            .setColorBlend(ColorBlendToken.Pured_Thin_Dark)
             .setBloomStroke(darkStroke)
             .build();
 
