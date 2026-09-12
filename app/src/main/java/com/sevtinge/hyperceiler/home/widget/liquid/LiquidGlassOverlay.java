@@ -19,172 +19,259 @@
 package com.sevtinge.hyperceiler.home.widget.liquid;
 
 import android.content.Context;
-import android.graphics.BlendMode;
+import android.graphics.Bitmap;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
 import android.graphics.RuntimeShader;
+import android.graphics.Shader;
 import android.os.Build;
+import android.os.SystemClock;
 import android.view.View;
-
-import androidx.annotation.NonNull;
 
 import com.sevtinge.hyperceiler.common.log.AndroidLog;
 
+import java.io.File;
+import java.io.FileOutputStream;
+
 /**
- * 液态玻璃药丸的「玻璃层」。
+ * 液态玻璃的「背景」渲染器：自己抓底栏背后的内容快照，再用 AGSL 做
+ * 模糊 + 折射 + 色散 + 饱和度提升，最后当作药丸的底色画上去。
  *
- * KernelSU 那边这一层是 miuix-blur 的 {@code drawBackdrop} + {@code lens} +
- * {@code vibrancy} + {@code Highlight}：compose 专有的 GPU 管线，View 世界拿不到。
- * 这里用 AGSL（API 33+，本机 API 37）自己写：
+ * 为什么不直接用 HyperOS 的 HyperMaterial：
+ * MIUI 的「背景模糊」模糊的是**窗口背后**的内容，而底栏背后是同一个窗口里的
+ * 列表，所以系统那套材质永远不会给它做模糊——只能自己采样。
  *
- *  - 圆角矩形 SDF 推出边缘一圈「镜片带」；
- *  - 双峰高光（主光源 + 对侧次光源）对应 KernelSU 的 BloomStroke dualPeak；
- *  - 色散环：由拖动速度驱动，模仿 {@code lens(chromaticAberration)}；
- *  - 触摸高光：对应 {@code InteractiveHighlight} 的径向白光；
- *  - 亮色下的内阴影：对应 {@code innerShadow}，按下时加重。
- *
- * 药丸的模糊填充仍然由 HyperOS 的 HyperMaterial 负责（那一层是系统原生模糊），
- * 这层只叠加镜片边缘的光学效果，所以中间区域几乎是透明的，不会遮住底下的模糊。
+ * 着色器的折射/色散数学照抄 KernelSU 的
+ * {@code ui/component/liquid/Lens.kt}（源自 Kyant0/AndroidLiquidGlass，Apache-2.0），
+ * 只是把 miuix-blur 的 backdrop 换成了自己抓的 Bitmap。
  */
-public class LiquidGlassOverlay extends View {
+public final class LiquidGlassOverlay {
 
     private static final String TAG = "LiquidGlassOverlay";
 
-    /** 镜片带的宽度（px），超过它就不再算边缘。 */
-    private static final float BAND_PX = 34f;
+    /** 快照最小间隔，避免每帧重绘整棵视图树。 */
+    private static final long CAPTURE_INTERVAL_MS = 80L;
 
-    /**
-     * 说明：这份 AGSL 刻意写得很保守——不用 pow()、不用向量单目负号、不用
-     * 科学计数法字面量、不在分支里 return，全部换成乘法/减法/mix。
-     * 之前那版更"漂亮"的写法在设备上直接编译报错。
-     */
+    /** 折射带宽度（px）与折射位移（px）。 */
+    private static final float REFRACT_HEIGHT = 40f;
+    private static final float REFRACT_AMOUNT = 26f;
+    private static final float BLUR_RADIUS = 10f;
+
     private static final String SHADER_SRC =
-        "uniform float2 uSize;\n"
+        "uniform shader content;\n"
+            + "uniform float2 uSize;\n"
             + "uniform float uRadius;\n"
+            + "uniform float uRefractHeight;\n"
+            + "uniform float uRefractAmount;\n"
+            + "uniform float uBlur;\n"
+            + "uniform float uDispersion;\n"
             + "uniform float2 uLight;\n"
             + "uniform float2 uTouch;\n"
             + "uniform float uTouchAlpha;\n"
             + "uniform float uPress;\n"
-            + "uniform float uDispersion;\n"
-            + "uniform float uMode;\n"
+            + "uniform float uDark;\n"
             + "\n"
             + "float sdRoundRect(float2 p, float2 hs, float r) {\n"
             + "    float2 q = abs(p) - (hs - r);\n"
             + "    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;\n"
             + "}\n"
             + "\n"
+            + "half4 blur9(float2 p) {\n"
+            + "    float d = uBlur;\n"
+            + "    float e = d * 0.7071;\n"
+            + "    half4 s = content.eval(p) * 0.25;\n"
+            + "    s = s + content.eval(p + float2(d, 0.0)) * 0.125;\n"
+            + "    s = s + content.eval(p - float2(d, 0.0)) * 0.125;\n"
+            + "    s = s + content.eval(p + float2(0.0, d)) * 0.125;\n"
+            + "    s = s + content.eval(p - float2(0.0, d)) * 0.125;\n"
+            + "    s = s + content.eval(p + float2(e, e)) * 0.0625;\n"
+            + "    s = s + content.eval(p + float2(e, 0.0 - e)) * 0.0625;\n"
+            + "    s = s + content.eval(p - float2(e, e)) * 0.0625;\n"
+            + "    s = s + content.eval(p - float2(e, 0.0 - e)) * 0.0625;\n"
+            + "    return s;\n"
+            + "}\n"
+            + "\n"
             + "half4 main(float2 coord) {\n"
             + "    float2 hs = uSize * 0.5;\n"
             + "    float2 c = coord - hs;\n"
             + "    float sd = sdRoundRect(c, hs, uRadius);\n"
-            + "    float inside = 1.0 - smoothstep(0.0 - 1.0, 1.0, sd);\n"
+            + "    float inside = 1.0 - smoothstep(0.0 - 1.5, 1.5, sd);\n"
+            + "    if (inside <= 0.0) return half4(0.0, 0.0, 0.0, 0.0);\n"
+            + "\n"
             + "    float depth = max(0.0 - sd, 0.0);\n"
             + "    float2 nn = normalize(c + float2(0.0001, 0.0001));\n"
-            + "    float band = (1.0 - smoothstep(0.0, 34.0, depth)) * inside;\n"
+            + "    float band = 1.0 - smoothstep(0.0, uRefractHeight, depth);\n"
+            + "\n"
+            + "    float t = clamp(1.0 - depth / uRefractHeight, 0.0, 1.0);\n"
+            + "    float lens = (1.0 - sqrt(max(1.0 - t * t, 0.0))) * uRefractAmount * band;\n"
+            + "    float2 refracted = coord - nn * lens;\n"
+            + "    half4 col = blur9(refracted);\n"
+            + "\n"
+            + "    float disp = uDispersion * band;\n"
+            + "    if (disp > 0.002) {\n"
+            + "        float3 shifted = col.rgb;\n"
+            + "        shifted.r = blur9(refracted + nn * (disp * 6.0)).r;\n"
+            + "        shifted.b = blur9(refracted - nn * (disp * 6.0)).b;\n"
+            + "        col = half4(shifted, col.a);\n"
+            + "    }\n"
+            + "\n"
+            + "    float gray = dot(col.rgb, float3(0.299, 0.587, 0.114));\n"
+            + "    float3 vibrant = mix(float3(gray, gray, gray), col.rgb, 1.5);\n"
+            + "    float3 tint = mix(float3(1.0, 1.0, 1.0), float3(0.13, 0.13, 0.14), uDark);\n"
+            + "    float3 fill = mix(vibrant, tint, 0.3);\n"
             + "\n"
             + "    float lamp = normalize(uLight);\n"
-            + "    float d1 = dot(nn, lamp);\n"
-            + "    float d2 = 0.0 - d1;\n"
-            + "    float p1 = max(d1, 0.0);\n"
-            + "    float p2 = max(d2, 0.0);\n"
-            + "    float s1 = p1 * p1 * p1 * p1 * p1;\n"
-            + "    float s2 = p2 * p2 * p2 * p2 * p2;\n"
-            + "    float spec = (s1 + s2 * 0.45) * band;\n"
+            + "    float d1 = max(dot(nn, lamp), 0.0);\n"
+            + "    float d2 = max(0.0 - dot(nn, lamp), 0.0);\n"
+            + "    float p1 = d1 * d1 * d1 * d1 * d1;\n"
+            + "    float p2 = d2 * d2 * d2 * d2 * d2;\n"
+            + "    float spec = (p1 + p2 * 0.45) * band;\n"
+            + "    float touch = uTouchAlpha\n"
+            + "        * (1.0 - smoothstep(0.0, uSize.y * 0.8, distance(coord, uTouch)));\n"
+            + "    float glow = spec * 0.35 + touch * 0.25 + uPress * 0.05;\n"
+            + "    fill = fill + float3(glow, glow, glow);\n"
             + "\n"
-            + "    float touchDist = distance(coord, uTouch);\n"
-            + "    float touch = uTouchAlpha * (1.0 - smoothstep(0.0, uSize.y * 0.8, touchDist));\n"
-            + "    float disp = uDispersion * band;\n"
-            + "    float highlight = spec * 0.55 + touch * 0.30 + uPress * 0.06 * inside + disp * 0.22;\n"
-            + "    float shadow = band * band * (0.08 + uPress * 0.30);\n"
-            + "\n"
-            + "    float3 white = float3(1.0, 1.0, 1.0);\n"
-            + "    float3 black = float3(0.0, 0.0, 0.0);\n"
-            + "    float3 fringe = float3(0.5, 0.5, 0.5) + 0.5 * float3(\n"
-            + "        cos(disp * 12.566),\n"
-            + "        cos(disp * 12.566 + 2.094),\n"
-            + "        cos(disp * 12.566 + 4.188));\n"
-            + "    float3 col = mix(white, fringe, clamp(disp * 0.9, 0.0, 1.0));\n"
-            + "    float a = mix(highlight, shadow, uMode);\n"
-            + "    float3 outColor = mix(col, black, uMode);\n"
-            + "    return half4(outColor, clamp(a, 0.0, 1.0));\n"
+            + "    return half4(clamp(fill, 0.0, 1.0), inside);\n"
             + "}\n";
 
-    private final Paint mHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint mShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    /** 调试：把抓到的背景快照写到外部缓存目录，方便 adb pull 出来核对。 */
+    private static final boolean DEBUG_DUMP_BACKDROP = true;
+
+    private final Context mContext;
+    private boolean mDumped;
 
     private RuntimeShader mShader;
-    private boolean mShaderFailed;
+    private boolean mFailed;
+    private Bitmap mBitmap;
+    private Canvas mBitmapCanvas;
+    private BitmapShader mBitmapShader;
+    private long mLastCapture;
+    private View mSource;
+    private final int[] mAnchorLocation = new int[2];
+    private final int[] mSourceLocation = new int[2];
 
-    private float mLightAngle = (float) (-Math.PI / 2.0);
-    private float mTouchX = -1f;
-    private float mTouchY = -1f;
-    private float mTouchAlpha = 0f;
-    private float mPress = 0f;
-    private float mDispersion = 0f;
-    private float mRadius = 0f;
-    private boolean mNight = true;
-
-    public LiquidGlassOverlay(Context context) {
-        super(context);
-        setWillNotDraw(false);
-        mHighlightPaint.setBlendMode(BlendMode.PLUS);
-    }
-
-    /** 当前设备/系统能不能用 AGSL（API 33+）。 */
     public static boolean isSupported() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU;
     }
 
-    public void update(float lightAngle, float touchX, float touchY, float touchAlpha,
-                       float press, float dispersion, float radius, boolean night) {
-        mLightAngle = lightAngle;
-        mTouchX = touchX;
-        mTouchY = touchY;
-        mTouchAlpha = touchAlpha;
-        mPress = press;
-        mDispersion = dispersion;
-        mRadius = radius;
-        mNight = night;
-        invalidate();
+    public LiquidGlassOverlay(Context context) {
+        mContext = context.getApplicationContext();
     }
 
-    @Override
-    protected void onDraw(@NonNull Canvas canvas) {
-        if (!isSupported() || mShaderFailed || getWidth() == 0 || getHeight() == 0) return;
+    /** 底栏背后的那一层内容（通常是 ViewPager）。 */
+    public void setSource(View source) {
+        mSource = source;
+    }
+
+    /**
+     * 抓一次背后的内容快照。节流到 {@link #CAPTURE_INTERVAL_MS}，
+     * 布局/滚动变化时由外部触发重绘即可。
+     */
+    public void capture(View anchor, int width, int height) {
+        if (mFailed || mSource == null || width <= 0 || height <= 0) return;
+        long now = SystemClock.uptimeMillis();
+        if (mBitmap != null && now - mLastCapture < CAPTURE_INTERVAL_MS) return;
+        mLastCapture = now;
+
+        try {
+            if (mBitmap == null || mBitmap.getWidth() != width || mBitmap.getHeight() != height) {
+                releaseBitmap();
+                mBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                mBitmapCanvas = new Canvas(mBitmap);
+                mBitmapShader = new BitmapShader(mBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            }
+            mBitmapCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            anchor.getLocationInWindow(mAnchorLocation);
+            mSource.getLocationInWindow(mSourceLocation);
+            int save = mBitmapCanvas.save();
+            mBitmapCanvas.translate(
+                mSourceLocation[0] - mAnchorLocation[0],
+                mSourceLocation[1] - mAnchorLocation[1]);
+            mSource.draw(mBitmapCanvas);
+            mBitmapCanvas.restoreToCount(save);
+
+            if (DEBUG_DUMP_BACKDROP && !mDumped) {
+                mDumped = true;
+                dumpBackdrop();
+            }
+        } catch (Throwable t) {
+            mFailed = true;
+            releaseBitmap();
+            AndroidLog.w(TAG, "backdrop capture failed, liquid glass falls back to material", t);
+        }
+    }
+
+    public void draw(Canvas canvas, float width, float height, float radius,
+                     float lightAngle, float touchX, float touchY, float touchAlpha,
+                     float press, float dispersion, boolean night) {
+        if (mFailed || mBitmap == null || mBitmapShader == null) return;
+        if (width <= 0f || height <= 0f) return;
 
         if (mShader == null) {
             try {
                 mShader = new RuntimeShader(SHADER_SRC);
-                mHighlightPaint.setShader(mShader);
-                mShadowPaint.setShader(mShader);
             } catch (Throwable t) {
-                // 编译不过就退化成纯材质，不能把整个 app 拖崩
-                mShaderFailed = true;
-                AndroidLog.w(TAG, "AGSL shader failed to compile, falling back to material only", t);
+                mFailed = true;
+                AndroidLog.w(TAG, "AGSL shader failed to compile, falling back to material", t);
                 return;
             }
         }
 
-        float width = getWidth();
-        float height = getHeight();
-        float radius = Math.min(mRadius, Math.min(width, height) * 0.5f);
-        float lightX = (float) Math.cos(mLightAngle);
-        float lightY = (float) Math.sin(mLightAngle);
-
+        mShader.setInputShader("content", mBitmapShader);
         mShader.setFloatUniform("uSize", width, height);
-        mShader.setFloatUniform("uRadius", radius);
-        mShader.setFloatUniform("uLight", lightX, lightY);
-        mShader.setFloatUniform("uTouch", mTouchX, mTouchY);
-        mShader.setFloatUniform("uTouchAlpha", Math.max(0f, mTouchAlpha));
-        mShader.setFloatUniform("uPress", Math.max(0f, mPress));
-        mShader.setFloatUniform("uDispersion", Math.max(0f, mDispersion));
+        mShader.setFloatUniform("uRadius", Math.min(radius, Math.min(width, height) * 0.5f));
+        mShader.setFloatUniform("uRefractHeight", REFRACT_HEIGHT);
+        mShader.setFloatUniform("uRefractAmount", REFRACT_AMOUNT);
+        mShader.setFloatUniform("uBlur", BLUR_RADIUS);
+        mShader.setFloatUniform("uDispersion", Math.max(0f, dispersion));
+        mShader.setFloatUniform("uLight", (float) Math.cos(lightAngle), (float) Math.sin(lightAngle));
+        mShader.setFloatUniform("uTouch", clamp(touchX, 0f, width), clamp(touchY, 0f, height));
+        mShader.setFloatUniform("uTouchAlpha", Math.max(0f, touchAlpha));
+        mShader.setFloatUniform("uPress", Math.max(0f, press));
+        mShader.setFloatUniform("uDark", night ? 1f : 0f);
 
-        mShader.setFloatUniform("uMode", 0f);
-        canvas.drawRect(0f, 0f, width, height, mHighlightPaint);
+        mPaint.setShader(mShader);
+        canvas.drawRoundRect(0f, 0f, width, height, radius, radius, mPaint);
+        mPaint.setShader(null);
+    }
 
-        if (!mNight) {
-            mShader.setFloatUniform("uMode", 1f);
-            canvas.drawRect(0f, 0f, width, height, mShadowPaint);
+    /** 内容滚动/布局变化时调用，让下一帧重抓快照。 */
+    public void invalidateBackdrop() {
+        mLastCapture = 0L;
+    }
+
+    public void release() {
+        releaseBitmap();
+    }
+
+    private void dumpBackdrop() {
+        try {
+            File dir = mContext.getExternalCacheDir();
+            if (dir == null) return;
+            File out = new File(dir, "backdrop.png");
+            FileOutputStream os = new FileOutputStream(out);
+            mBitmap.compress(Bitmap.CompressFormat.PNG, 100, os);
+            os.close();
+            AndroidLog.w(TAG, "backdrop dumped to " + out.getAbsolutePath());
+        } catch (Throwable t) {
+            AndroidLog.w(TAG, "backdrop dump failed", t);
         }
+    }
+
+    private void releaseBitmap() {        if (mBitmap != null) {
+            mBitmap.recycle();
+            mBitmap = null;
+        }
+        mBitmapCanvas = null;
+        mBitmapShader = null;
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

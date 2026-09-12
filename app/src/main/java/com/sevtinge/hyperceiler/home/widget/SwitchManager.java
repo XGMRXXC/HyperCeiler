@@ -81,6 +81,15 @@ public class SwitchManager {
     }
 
     /**
+     * 液态玻璃要采样的背后内容（通常是承载页面的 ViewPager）
+     */
+    public void setBackdropView(View view) {
+        if (mSwitchView != null) {
+            mSwitchView.setBackdropSource(view);
+        }
+    }
+
+    /**
      * 兼容旧调用：true = 悬浮胶囊，false = 贴地底栏
      */
     public void setFloatingStyle(boolean useFloating) {

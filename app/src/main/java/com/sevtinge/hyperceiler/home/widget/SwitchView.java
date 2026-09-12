@@ -25,6 +25,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -38,6 +39,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.sevtinge.hyperceiler.R;
+import com.sevtinge.hyperceiler.home.widget.liquid.LiquidGlassOverlay;
 import com.sevtinge.hyperceiler.home.widget.liquid.SpringValue;
 
 import java.util.ArrayList;
@@ -81,6 +83,8 @@ public class SwitchView extends HyperCardView implements SensorEventListener {
     private View mDividerLine;
     private View mIndicatorView;
     private final Paint mGlassPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** 液态玻璃的背景渲染器（自己抓快照做模糊+折射+色散）。 */
+    private LiquidGlassOverlay mGlassBackdrop;
     private LinearLayout mTabContainer;
     private final List<View> mItemViews = new ArrayList<>();
 
@@ -134,6 +138,9 @@ public class SwitchView extends HyperCardView implements SensorEventListener {
     /** 液态玻璃样式的弹簧与手势参数，全部对齐 KernelSU 的 DampedDragAnimation。 */
     private void initLiquid() {
         mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        if (LiquidGlassOverlay.isSupported()) {
+            mGlassBackdrop = new LiquidGlassOverlay(getContext());
+        }
 
         mIndicatorSpring = new SpringValue(1000f, 1f, 0.001f, 0f);
         mPressSpring = new SpringValue(1000f, 1f, 0.001f, 0f);
@@ -757,6 +764,7 @@ public class SwitchView extends HyperCardView implements SensorEventListener {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        getViewTreeObserver().addOnScrollChangedListener(mScrollListener);
         if (mSensorManager == null) {
             mSensorManager = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
         }
@@ -769,9 +777,13 @@ public class SwitchView extends HyperCardView implements SensorEventListener {
 
     @Override
     protected void onDetachedFromWindow() {
+        getViewTreeObserver().removeOnScrollChangedListener(mScrollListener);
         if (mTiltRegistered && mSensorManager != null) {
             mSensorManager.unregisterListener(this);
             mTiltRegistered = false;
+        }
+        if (mGlassBackdrop != null) {
+            mGlassBackdrop.release();
         }
         super.onDetachedFromWindow();
     }
@@ -819,11 +831,28 @@ public class SwitchView extends HyperCardView implements SensorEventListener {
 
     @Override
     protected void dispatchDraw(Canvas canvas) {
-        super.dispatchDraw(canvas);
         if (mCurrentStyle == NavigationStyle.LIQUID_GLASS) {
+            // 背景快照 + AGSL 折射这条路的代码在 LiquidGlassOverlay 里，但设备上
+            // 画出来只有一层平色（快照本身是好的，见那个类里的 DEBUG_DUMP_BACKDROP），
+            // 暂时停用，先用渐变高光保证观感。下一步走 Compose + miuix-blur 重做。
             drawGlassHighlights(canvas);
         }
+        super.dispatchDraw(canvas);
     }
+
+    /** 底栏背后要采样的那一层（通常是 ViewPager）。 */
+    public void setBackdropSource(View source) {
+        if (mGlassBackdrop != null) {
+            mGlassBackdrop.setSource(source);
+        }
+    }
+
+    private final ViewTreeObserver.OnScrollChangedListener mScrollListener = () -> {
+        if (mGlassBackdrop != null && mCurrentStyle == NavigationStyle.LIQUID_GLASS) {
+            mGlassBackdrop.invalidateBackdrop();
+            invalidate();
+        }
+    };
 
     /**
      * 玻璃边缘的镜片高光 / 触摸高光 / 按下提亮 / 拖动色散。

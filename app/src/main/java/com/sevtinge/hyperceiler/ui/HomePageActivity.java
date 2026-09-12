@@ -114,6 +114,8 @@ public class HomePageActivity extends AppCompatActivity
         // 触发一次，把用户选的样式覆盖成贴地底栏。
 
         mViewPager = findViewById(R.id.vp_fragments);
+        // 液态玻璃底栏需要采样它背后的页面内容
+        mSwitchManager.setBackdropView(mViewPager);
         rebuildContentPages();
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
     }
