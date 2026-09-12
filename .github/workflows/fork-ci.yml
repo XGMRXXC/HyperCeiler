@@ -19,6 +19,10 @@
 
 name: Fork CI
 
+# The build only reads the repository; it never needs to write anything back.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [dev]
