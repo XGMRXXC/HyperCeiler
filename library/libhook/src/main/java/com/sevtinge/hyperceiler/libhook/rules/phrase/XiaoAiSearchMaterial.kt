@@ -238,6 +238,7 @@ class XiaoAiSearchMaterial(
                             "total=$total windowBottom=$windowBottomY offset=$offset " +
                             "draw=[$drawTop,$drawBottom]"
                     )
+                    log("ime dimens: " + imeDimens())
                 }
 
                 setRamp(s, TOP_ALPHA, BOTTOM_ALPHA)
@@ -264,31 +265,67 @@ class XiaoAiSearchMaterial(
         }
 
         /**
-         * 返回 (窗口顶部Y, 键盘高度, 窗口底部Y)，三者都是**窗口坐标**。
+         * 返回 (键盘顶Y, 键盘高度, 窗口底部Y)，窗口坐标。
          *
-         * 实测：输入法窗口和窗口内的 Compose 宿主都是**整屏**（2656 / 2506），
-         * 拿任何视图边界都定位不到键盘。所以用框架自己算的值：
-         * onComputeInsets 的 contentTopInsets = 可见键盘的顶边（屏幕坐标）。
-         * 换算到窗口坐标：减去该视图在屏幕上的 Y。
+         * 高度优先用**输入法自己的尺寸资源**（它内部就是靠 keyboard_unified_height_*
+         * 决定键盘高度的，用户还能自行调节，所以这最贴近它的真实状态）：
+         * 实测 keyboard_unified_height_portrait=862，而按 contentTopInsets 推出来是 922，
+         * 差 60px —— 这就是白纱在面板上方露出来的那一条。
+         * 拿不到资源时再退回 onComputeInsets 的 contentTopInsets。
          */
         private fun keyboardBounds(service: InputMethodService): Triple<Int, Int, Int> {
             val areaOnScreen = IntArray(2).also(area::getLocationOnScreen)
             val screenBottom = areaOnScreen[1] + area.height
+            // 键盘一直到屏幕底部（不要扣导航栏：扣了整条会往上挪，工具栏就盖不住了）
+            val bottom = screenBottom - areaOnScreen[1]
+
+            val ownHeight = imeKeyboardHeightPx(area.resources)
+            if (ownHeight > 0 && ownHeight < area.height) {
+                val top = (bottom - ownHeight).coerceAtLeast(0)
+                return Triple(top, bottom - top, bottom)
+            }
 
             val topOnScreen = if (keyboardTopOnScreen in 1 until screenBottom) {
-                keyboardTopOnScreen
+                keyboardTopOnScreen + topInsetPx()
             } else {
-                // 还没拿到 insets：退回到"键盘本体 + 底部条"的范围
                 val sibLoc = IntArray(2).also(sibling::getLocationInWindow)
                 val selfLoc = IntArray(2).also(area::getLocationInWindow)
                 areaOnScreen[1] + minOf(0, sibLoc[1] - selfLoc[1])
             }
 
             val top = topOnScreen - areaOnScreen[1]
-            val bottom = screenBottom - areaOnScreen[1]
             val height = (bottom - top).coerceAtLeast(1)
             return Triple(top, height, bottom)
         }
+
+        /** 导航栏/手势条高度（拿不到就当 0）。 */
+        private fun navBarHeightPx(res: android.content.res.Resources): Int {
+            val id = res.getIdentifier("navigation_bar_height", "dimen", "android")
+            if (id == 0) return 0
+            return runCatching { res.getDimensionPixelSize(id) }.getOrDefault(0)
+        }
+
+        /** 输入法自己的键盘高度（竖屏/横屏各一个资源），拿不到返回 0。 */
+        private fun imeKeyboardHeightPx(res: android.content.res.Resources): Int {
+            val landscape = res.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val names = if (landscape) {
+                listOf("keyboard_unified_height_landscape", "keyboard_unified_height_portrait")
+            } else {
+                listOf("keyboard_unified_height_portrait", "keyboard_unified_height_landscape")
+            }
+            for (name in names) {
+                val id = res.getIdentifier(name, "dimen", IME_PACKAGE)
+                if (id != 0) {
+                    val px = runCatching { res.getDimensionPixelSize(id) }.getOrDefault(0)
+                    if (px > 0) return px
+                }
+            }
+            return 0
+        }
+
+        private fun topInsetPx(): Int =
+            (KEYBOARD_TOP_INSET_DP * area.resources.displayMetrics.density).toInt()
 
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
@@ -390,8 +427,45 @@ class XiaoAiSearchMaterial(
         runCatching { XposedLog.w(TAG, message) }
     }
 
+    /**
+     * 读输入法**自己**的尺寸资源（它的 R.dimen 里的 keyboard_unified_height_* 等），
+     * 和 contentTopInsets 对照，确认哪个才是"键盘真实高度"。
+     * 键盘高度可由用户调节，所以这些值是最贴近它内部状态的来源。
+     */
+    private fun imeDimens(): String {
+        val names = listOf(
+            "keyboard_unified_height_portrait",
+            "unified_keyboard_height_min",
+            "keyboard_top_bar_height",
+            "shortcut_bar_placeholder_height",
+            "ai_rewrite_original_line_height",
+            "ai_rewrite_result_line_height",
+            "ai_rewrite_panel_height",
+            "ai_rewrite_height",
+            "ai_panel_height",
+            "smart_reply_tab_height",
+            "tooltip_arrow_height",
+            "keyboard_key_height"
+        )
+        val res = runCatching { currentContext()?.resources }.getOrNull() ?: return "no context"
+        return names.joinToString(", ") { name ->
+            val id = res.getIdentifier(name, "dimen", IME_PACKAGE)
+            if (id == 0) "$name=?" else "$name=${res.getDimensionPixelSize(id)}"
+        }
+    }
+
+    /** 当前进程若就是输入法，它的 Application 资源里就有那些 dimen。 */
+    private fun currentContext(): android.content.Context? = runCatching {
+        val at = Class.forName("android.app.ActivityThread")
+        val app = at.getMethod("currentApplication").invoke(null)
+        app as? android.content.Context
+    }.getOrNull()
+
     private companion object {
         const val IME_SERVICE_CLASS = "com.mi.ime.MiInputMethodService"
+
+        /** 输入法的包名，用来查它自己的尺寸资源。 */
+        const val IME_PACKAGE = "com.xiaomi.type"
         const val QUICK_SEARCH_PACKAGE = "com.android.quicksearchbox"
         const val HYPER_MATERIAL_HELPER_GETTER_PREFIX = "getHyperMaterialHelper"
 
@@ -402,6 +476,12 @@ class XiaoAiSearchMaterial(
         /** 上淡下浓；先用保守值确认可见与可读，再按观感调。 */
         const val TOP_ALPHA = 0.03f
         const val BOTTOM_ALPHA = 0.18f
+
+        /**
+         * 退回方案时，键盘顶边相对 contentTopInsets 再往下收多少 dp。
+         * 主方案（用输入法自己的 dimen）不需要它。
+         */
+        const val KEYBOARD_TOP_INSET_DP = 0f
 
         /** 打印一次实际几何（窗口/屏幕坐标），用来精确对齐可见区，稳定后关。 */
         const val GEOMETRY_LOG = true
