@@ -1741,8 +1741,8 @@
     <string name="various_disable_access_device_logs">Dismiss access device logs request dialog</string>
     <string name="various_phrase_clipboardlist">Remove the clipboard and time limits for Enhance keyboard</string>
     <string name="various_phrase_clipboardlist_more">After it\'s enabled, select the input method scope and restart it.</string>
-    <string name="home_os4_wallpaper_scale">Remove wallpaper scaling</string>
-    <string name="home_os4_wallpaper_scale_summary">Writes the OS4 launcher\'s wallpaper scale base (home_wallpaper_scale_base, 1.05 by default on this device) back to 1.0, so the wallpaper is no longer enlarged and moved with the home screen. The launcher is restarted afterwards.</string>
+    <string name="home_os4_not_supported">Not supported yet</string>
+    <string name="home_os4_not_supported_summary">The HyperOS 4 launcher is rewritten in Flutter and Rust, so its logic is not in Java and the switches on the old page have nothing to hook. The effects that would work on OS4 depend on the module being injected into the launcher process, and that path is not working yet. Entries will be added back once it is.</string>
     <string name="various_unlock_ime">Unlock Enhance keyboard limitation</string>
     <string name="various_unlock_ime_desc">Enable Enhance keyboard for the selected style on the target input method\nThe "Native" style requires an additional check of the "System Framework" scope\nSelecting the "Native" style only applies to non-Xiaomi custom versions; checking it for Xiaomi custom versions will add the keyboard to the switchable list</string>
     <string name="various_unlock_ime_apps">Target input methods</string>

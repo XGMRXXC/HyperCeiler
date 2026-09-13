@@ -17,21 +17,22 @@
   ~ Copyright (C) 2023-2026 HyperCeiler Contributions
   -->
 <!--
-  OS4 专用桌面页。HyperOS 4 的桌面已用 Flutter + Rust 重写，逻辑不在 Java 里，
-  原来那一页基于 Java hook 的开关在这里大多不适用，所以不照搬：这一页从空开始，
-  按 OS4 上真正做得到的效果逐条加。
+  OS4 专用桌面页。
 
-  分流见 hooker/HomeFragment.java：OS4 及以上走本页，OS3 及以下走 home_new.xml。
+  HyperOS 4 的桌面用 Flutter(Dart) + Rust 重写（APK 里是 libhyper_os_flutter.so /
+  libapp.so / libresources_frb.so，逻辑不在 Java 里），原来那一页基于 Java hook 的开关
+  在这里没有可挂的目标；而 OS4 上真正能做的那几种效果（改系统属性、绕设备档位等）
+  又依赖模块能注入桌面进程 —— 当前这条通道没能打通，所以先如实标成暂不支持。
+
+  等注入通道可用之后，再按 OS4 的实际情况逐条加回来。
 -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    app:quick_restart="com.miui.home">
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <!-- 桌面在启动时读这个设置，所以改完由框架重启桌面生效（见上面的 quick_restart）。 -->
-    <SwitchPreference
-        android:defaultValue="false"
-        android:key="prefs_key_home_os4_wallpaper_scale_fix"
-        android:summary="@string/home_os4_wallpaper_scale_summary"
-        android:title="@string/home_os4_wallpaper_scale" />
+    <Preference
+        android:enabled="false"
+        android:selectable="false"
+        android:summary="@string/home_os4_not_supported_summary"
+        android:title="@string/home_os4_not_supported" />
 
 </PreferenceScreen>
