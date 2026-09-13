@@ -62,6 +62,7 @@ class XiaoAiSearchMaterial(
 
     private var decorated = false
     private var drawWarned = false
+    private var geometryLogged = false
 
     override fun init() {
         val serviceClass = findClassIfExists(IME_SERVICE_CLASS)
@@ -186,6 +187,17 @@ class XiaoAiSearchMaterial(
                 val drawTop = maxOf(0, -offset)
                 val drawBottom = minOf(h, total - offset)
                 if (drawBottom <= drawTop) return
+
+                if (GEOMETRY_LOG && !geometryLogged) {
+                    geometryLogged = true
+                    log(
+                        "geometry: area=${area.javaClass.simpleName} top=${selfLoc[1]} h=$h " +
+                            "regionTop=${regionTop.javaClass.simpleName}@$regionTopY " +
+                            "regionBottom=${regionBottom.javaClass.simpleName}@$regionBottomY " +
+                            "total=$total offset=$offset draw=[$drawTop,$drawBottom] " +
+                            "screen=${area.resources.displayMetrics.heightPixels}"
+                    )
+                }
 
                 setRamp(s, TOP_ALPHA, BOTTOM_ALPHA)
                 s.setFloatUniform("uHeight", total.toFloat())
@@ -323,6 +335,9 @@ class XiaoAiSearchMaterial(
         /** 上淡下浓；先用保守值确认可见与可读，再按观感调。 */
         const val TOP_ALPHA = 0.03f
         const val BOTTOM_ALPHA = 0.18f
+
+        /** 打印一次实际几何（窗口/屏幕坐标），用来精确对齐可见区，稳定后关。 */
+        const val GEOMETRY_LOG = true
 
         /** 旧版 0.2.343 里的着色器原文（未改动）。 */
         val GLASS_AGSL = """
