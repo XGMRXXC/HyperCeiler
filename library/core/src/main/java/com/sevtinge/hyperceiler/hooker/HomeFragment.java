@@ -27,6 +27,7 @@ import android.provider.Settings;
 
 import androidx.preference.Preference;
 
+import com.sevtinge.hyperceiler.common.utils.ShellUtils;
 import com.sevtinge.hyperceiler.prefs.LayoutPreference;
 import com.sevtinge.hyperceiler.core.R;
 import com.sevtinge.hyperceiler.dashboard.DashboardFragment;
@@ -96,25 +97,35 @@ public class HomeFragment extends DashboardFragment {
      *
      * OS4 桌面的壁纸缩放读的是 Settings.Secure 的 home_wallpaper_scale_base，
      * 本机默认 1.05 —— 也就是壁纸会被放大一点点再随桌面动。把它写成 1.0 就没有这个缩放。
-     * 关掉开关时还原成改之前的值（存在应用自己的 prefs 里）。
      *
-     * 桌面是在启动时读这个值，所以页面里带 app:quick_restart="com.miui.home"，
-     * 改完由框架重启桌面生效。
+     * 两个细节：
+     *  · 写 secure 设置需要 WRITE_SECURE_SETTINGS，而本应用是普通应用、没有这个权限，
+     *    所以写入走 su（与项目里其它地方一致）；读不需要权限，直接用应用自己读。
+     *  · 关掉开关时还原成改之前的值（存在应用自己的 prefs 里）。
+     *
+     * 桌面在启动时读这个值，所以页面带 app:quick_restart="com.miui.home"，改完自动重启桌面。
      */
     private void applyWallpaperScaleFix(Context context, boolean enabled) {
         try {
+            String target;
             if (enabled) {
                 String current = Settings.Secure.getString(context.getContentResolver(), SECURE_WALLPAPER_SCALE_BASE);
                 if (current != null && !getSharedPreferences().contains(PREF_WALLPAPER_SCALE_BACKUP)) {
                     getSharedPreferences().edit().putString(PREF_WALLPAPER_SCALE_BACKUP, current).apply();
                 }
-                Settings.Secure.putString(context.getContentResolver(), SECURE_WALLPAPER_SCALE_BASE, "1.0");
+                target = "1.0";
             } else {
-                String backup = getSharedPreferences().getString(PREF_WALLPAPER_SCALE_BACKUP, null);
-                if (backup != null) {
-                    Settings.Secure.putString(context.getContentResolver(), SECURE_WALLPAPER_SCALE_BASE, backup);
-                    getSharedPreferences().edit().remove(PREF_WALLPAPER_SCALE_BACKUP).apply();
-                }
+                target = getSharedPreferences().getString(PREF_WALLPAPER_SCALE_BACKUP, null);
+                if (target == null) return;
+            }
+
+            ShellUtils.execCommand(
+                "settings put secure " + SECURE_WALLPAPER_SCALE_BASE + " " + target,
+                true
+            );
+
+            if (!enabled) {
+                getSharedPreferences().edit().remove(PREF_WALLPAPER_SCALE_BACKUP).apply();
             }
         } catch (Throwable t) {
             android.util.Log.w("HomeFragment", "applyWallpaperScaleFix failed: " + t.getMessage());
