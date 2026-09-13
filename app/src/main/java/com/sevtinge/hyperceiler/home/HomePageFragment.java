@@ -200,6 +200,7 @@ public class HomePageFragment extends BasePreferenceFragment implements OnComple
             // 搜索期间底栏被隐藏（见 onActionModeStarted 的 hide()），退出后只把它显示回来
             // 不够：液态玻璃底栏的采样纹理还停在搜索前那一刻，直接显示就是重影。
             // 重建一次等于按当前布局重新初始化（采样源、尺寸、选中态全部重走）。
+            android.util.Log.w("GlassReload", "onDestroyActionMode -> recreateGlassBar");
             getSwitchManager().recreateGlassBar();
             getSwitchManager().show();
             mIsInActionMode = false;

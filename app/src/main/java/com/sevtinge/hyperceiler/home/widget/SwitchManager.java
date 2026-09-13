@@ -116,9 +116,21 @@ public class SwitchManager {
      */
     public void recreateGlassBar() {
         if (mGlassBar == null || mCurrentStyle != NavigationStyle.LIQUID_GLASS) return;
+        // 探针：重建前先数一数父容器里有多少个子视图 —— 如果每次重建都多留一个底栏，
+        // 屏幕上就会是两个底栏错位叠加，看起来正是"重影"。
+        android.util.Log.w(
+            "GlassReload",
+            "recreate before: parentChildren=" + mParent.getChildCount() +
+                " glassBarAttached=" + (mGlassBar.getParent() != null) +
+                " switchView=" + (mSwitchView != null)
+        );
         mParent.removeView(mGlassBar);
         mGlassBar = null;
         setStyle(NavigationStyle.LIQUID_GLASS);
+        android.util.Log.w(
+            "GlassReload",
+            "recreate after: parentChildren=" + mParent.getChildCount()
+        );
     }
 
     private void ensureGlassBar() {

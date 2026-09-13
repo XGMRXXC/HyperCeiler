@@ -231,6 +231,17 @@ public class HomePageActivity extends AppCompatActivity
     }
 
     @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // 从任何界面（包括 App 内搜索、二级页面、桌面）回到模块主页，窗口都会重新拿到焦点。
+        // 这里再兜一次重载：不依赖某个具体回调有没有被调用。
+        if (hasFocus && mSwitchManager != null) {
+            android.util.Log.w("GlassReload", "onWindowFocusChanged(true) -> recreateGlassBar");
+            mSwitchManager.recreateGlassBar();
+        }
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         PageDecorator.onResume();
@@ -240,6 +251,7 @@ public class HomePageActivity extends AppCompatActivity
             // 每次回到模块主页都把液态玻璃底栏重载一次：它的采样纹理在别的界面停留过之后
             // 会停在旧画面上，重新显示就是重影。按当前布局重建最省事也最可靠
             // （采样源、尺寸、选中态都会重新走一遍，不用去追是哪一次切换弄脏的）。
+            android.util.Log.w("GlassReload", "onResume -> recreateGlassBar");
             mSwitchManager.recreateGlassBar();
             if (mViewPager != null) {
                 // 从二级页面返回时，底栏的选中项要跟随当前页面。

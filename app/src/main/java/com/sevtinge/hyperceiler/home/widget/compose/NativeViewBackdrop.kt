@@ -158,7 +158,12 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
         val canvas = drawContext.canvas.nativeCanvas
         canvas.save()
         try {
-            val scale = 1f / downscaleFactor.coerceAtLeast(1)
+            // 画布先缩小到 1/downscaleFactor 采样，于是**画布坐标系也被缩小了**。
+            // 后面所有平移都是按"屏幕像素"算出来的，必须乘回 downscaleFactor 才是同样的
+            // 视觉位移 —— 少了这一步，采样的内容会整体偏移（玻璃里出现错位的重影）。
+            val factor = downscaleFactor.coerceAtLeast(1)
+            val scale = 1f / factor
+            val translateScale = factor.toFloat()
             canvas.scale(scale, scale)
 
             // 先铺页面背景，再画当前页内容：设置/关于页的卡片之外是这层背景，
@@ -168,8 +173,8 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
                 val ownerPosition = IntArray(2).also(backgroundOwner::getLocationInWindow)
                 canvas.save()
                 canvas.translate(
-                    ownerPosition[0] - surfacePosition.x,
-                    ownerPosition[1] - surfacePosition.y
+                    (ownerPosition[0] - surfacePosition.x) * translateScale,
+                    (ownerPosition[1] - surfacePosition.y) * translateScale
                 )
                 // 先存下原 bounds：这是视图自己的 drawable，画完要还回去
                 val original = android.graphics.Rect(background.bounds)
@@ -180,8 +185,8 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
             }
 
             canvas.translate(
-                sourcePosition[0] - surfacePosition.x,
-                sourcePosition[1] - surfacePosition.y
+                (sourcePosition[0] - surfacePosition.x) * translateScale,
+                (sourcePosition[1] - surfacePosition.y) * translateScale
             )
             target.draw(canvas)
         } finally {
