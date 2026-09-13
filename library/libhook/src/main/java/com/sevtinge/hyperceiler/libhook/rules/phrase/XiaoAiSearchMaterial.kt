@@ -120,17 +120,24 @@ class XiaoAiSearchMaterial(
         val decor = service.window?.window?.decorView as? ViewGroup ?: return
         val content = decor.findViewById<ViewGroup>(android.R.id.content) ?: return
 
-        // 两块真实区域，各自边界精确：键盘本体 + 剪贴板/快捷键条
-        val body = findAreaById(content, "inputArea")
-        val bottom = findAreaById(content, "miui_bottom_area")
+        // 键盘本体：用 inputArea 里**真正承载键盘内容**的那一层（inputArea 自身会预留
+        // 额外高度，挂它上面时白底会冒到输入法之上，实测过）。
+        val inputArea = findAreaById(content, "inputArea")
+        val body = (inputArea?.takeIf { it.childCount > 0 }?.getChildAt(0)) ?: inputArea
+        // 剪贴板/快捷键条：它本来就是一块纯色背景（ColorDrawable），直接换掉最准，
+        // 边界和它自身完全一致。
+        val bottom = findByIdName(content, "input_bottom_view") ?: findAreaById(content, "miui_bottom_area")
+
         if (body == null && bottom == null) {
-            log("neither inputArea nor miui_bottom_area found")
+            log("neither the keyboard body nor the bottom bar was found")
             return
         }
         body?.foreground = GlassDrawable(body, bottom)
-        bottom?.foreground = GlassDrawable(bottom, body)
+        bottom?.let { bar ->
+            bar.background = GlassDrawable(bar, body)
+        }
         decorated = true
-        log("glass foreground set on body=${body != null} bottom=${bottom != null}")
+        log("glass applied on body=${body?.javaClass?.simpleName} bottom=${bottom?.javaClass?.simpleName}")
     }
 
     /**
@@ -267,6 +274,20 @@ class XiaoAiSearchMaterial(
             }
             for (i in 0 until view.childCount) {
                 findAreaById(view.getChildAt(i), name)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** 按资源 id 名找任意视图（不要求是 ViewGroup，比如 input_bottom_view）。 */
+    private fun findByIdName(view: View, name: String): View? {
+        if (view.id != View.NO_ID) {
+            val entry = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull()
+            if (entry == name) return view
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                findByIdName(view.getChildAt(i), name)?.let { return it }
             }
         }
         return null
