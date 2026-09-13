@@ -98,6 +98,7 @@ class XiaoAiSearchMaterial : BaseHook() {
 
         hooked += hookHelperRefresh()
         hooked += hookBlurCapability()
+        hookMaterialPrefs()
         if (DIAGNOSE && helperClass != null) diagnoseHelper(helperClass)
 
         if (hooked == 0) {
@@ -105,6 +106,50 @@ class XiaoAiSearchMaterial : BaseHook() {
         } else {
             debug("hooked $hooked input lifecycle methods")
         }
+    }
+
+    /**
+     * 观察输入法自己那套材质偏好（键名是从 dex 里读出来的）：
+     * hyper_material / hyper_material_version / hyper_material_material_version /
+     * hyper_material_allowed_packages / hyper_material_package_versions /
+     * hyper_material_force_dark / hyper_material_force_light
+     *
+     * 高级材质是**版本门控**的：设备上存的版本够高才给。上游那份只伪造包白名单，
+     * 从没管过这道门，所以先把实际读到的值打出来，看清楚门有多高。
+     */
+    private fun hookMaterialPrefs() {
+        val impl = findClassIfExists("android.app.SharedPreferencesImpl")
+        if (impl == null) {
+            debug("SharedPreferencesImpl not found, cannot watch material prefs")
+            return
+        }
+        val getInt = findMethodExactIfExists(
+            impl, "getInt", *arrayOf<Class<*>>(String::class.java, java.lang.Integer.TYPE)
+        )
+        getInt?.let { method ->
+            xposed().hook(method).intercept { chain ->
+                val key = chain.getArg(0) as? String
+                val value = chain.proceed()
+                if (key != null && key.startsWith(MATERIAL_PREF_PREFIX)) {
+                    debug("pref $key=$value")
+                }
+                value
+            }
+        }
+        val getBoolean = findMethodExactIfExists(
+            impl, "getBoolean", *arrayOf<Class<*>>(String::class.java, java.lang.Boolean.TYPE)
+        )
+        getBoolean?.let { method ->
+            xposed().hook(method).intercept { chain ->
+                val key = chain.getArg(0) as? String
+                val value = chain.proceed()
+                if (key != null && key.startsWith(MATERIAL_PREF_PREFIX)) {
+                    debug("pref $key=$value")
+                }
+                value
+            }
+        }
+        debug("material pref watch installed")
     }
 
     /**
@@ -349,6 +394,9 @@ class XiaoAiSearchMaterial : BaseHook() {
          * 只认名字、不按"第一个 boolean"猜，避免把键盘带成深色/普通样式。
          */
         private val MATERIAL_SUPPORT_FIELD_NAMES = setOf("h")
+
+        /** 输入法材质相关偏好键的前缀（从 dex 里读出来的）。 */
+        private const val MATERIAL_PREF_PREFIX = "hyper_material"
 
         /** 诊断开关：定位阶段打开，问题解决后关掉。 */
         private const val DIAGNOSE = false
