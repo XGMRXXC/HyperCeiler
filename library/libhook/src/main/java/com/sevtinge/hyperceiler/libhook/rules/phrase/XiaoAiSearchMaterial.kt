@@ -489,10 +489,15 @@ class XiaoAiSearchMaterial(
         const val BOTTOM_ALPHA = 0.18f
 
         /**
-         * 退回方案时，键盘顶边相对 contentTopInsets 再往下收多少 dp。
-         * 主方案（用输入法自己的 dimen）不需要它。
+         * 键盘顶边相对 contentTopInsets 再往下收多少 dp。
+         *
+         * contentTopInsets 是"内容区顶边"，比面板可见的圆角顶边**高**一些 ——
+         * 从截图量出来：contentTopInsets 落在 1676，而面板圆角顶边在 1654 附近，
+         * 再往上还有搜索栏那一条（1572 结束），所以白纱会高到搜索栏那里。
+         * 实测量到的差 ≈ 150px（本机 density 3.25 → 约 46dp），这里先给 45dp，
+         * 现象是"还露一点"就加大、"收过头"就减小。
          */
-        const val KEYBOARD_TOP_INSET_DP = 0f
+        const val KEYBOARD_TOP_INSET_DP = 45f
 
         /** 打印一次实际几何（窗口/屏幕坐标），用来精确对齐可见区，稳定后关。 */
         const val GEOMETRY_LOG = true
