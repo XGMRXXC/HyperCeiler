@@ -4,7 +4,7 @@
   ~ HyperCeiler is free software: you can redistribute it and/or modify
   ~ it under the terms of the GNU Affero General Public License as
   ~ published by the Free Software Foundation, either version 3 of the
-  ~ License.
+  ~ License, or (at your option) any later version.
   ~
   ~ This program is distributed in the hope that it will be useful,
   ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,58 +17,13 @@
   ~ Copyright (C) 2023-2026 HyperCeiler Contributions
   -->
 <!--
-  OS4 专用桌面页。
-  OS4 的桌面已用 Flutter + Rust 重写，原来的 Java hook 大多不再适用，
-  所以单独开这一页，方便按 OS4 的实际情况增删条目；OS3 仍然走 home_new.xml。
-  当前内容与 home_new.xml 一致，保证 OS4 用户升级后不丢任何条目。
+  OS4 专用桌面页。HyperOS 4 的桌面已用 Flutter + Rust 重写，逻辑不在 Java 里，
+  原来那一页基于 Java hook 的开关在这里大多不适用，所以不照搬：这一页从空开始，
+  按 OS4 上真正做得到的效果逐条加。
+
+  分流见 hooker/HomeFragment.java：OS4 及以上走本页，OS3 及以下走 home_new.xml。
 -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    app:quick_restart="com.miui.home">
-
-    <com.sevtinge.hyperceiler.prefs.LayoutPreference
-        android:enabled="false"
-        android:key="prefs_key_home_unsupported"
-        android:layout="@layout/headtip_warn"
-        android:title="@string/unsupported_func_tips" />
-
-    <PreferenceCategory>
-        <com.sevtinge.hyperceiler.prefs.XmlPreference
-            android:fragment="com.sevtinge.hyperceiler.hooker.home.HomeGestureSettings"
-            android:key="prefs_key_home_gesture"
-            android:title="@string/home_gesture"
-            app:inflatedXml="@xml/home_gesture" />
-
-        <Preference
-            android:fragment="com.sevtinge.hyperceiler.hooker.home.HomeLayoutSettings"
-            android:key="prefs_key_home_layout"
-            android:title="@string/home_layout" />
-
-        <Preference
-            android:fragment="com.sevtinge.hyperceiler.hooker.home.HomeDockSettings"
-            android:key="prefs_key_home_dock"
-            android:title="@string/home_dock" />
-
-        <Preference
-            android:fragment="com.sevtinge.hyperceiler.hooker.home.HomeDrawerSettings"
-            android:key="prefs_key_home_drawer"
-            android:title="@string/home_drawer" />
-
-        <Preference
-            android:fragment="com.sevtinge.hyperceiler.hooker.home.HomeRecentSettings"
-            android:key="prefs_key_home_recent"
-            android:title="@string/home_recent" />
-
-        <Preference
-            android:key="prefs_key_home_title"
-            android:title="@string/home_title"
-            android:fragment="com.sevtinge.hyperceiler.hooker.home.HomeTitleSettings" />
-
-        <Preference
-            android:key="prefs_key_home_other"
-            android:title="@string/home_other"
-            android:fragment="com.sevtinge.hyperceiler.hooker.home.HomeOtherSettings" />
-
-    </PreferenceCategory>
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
 </PreferenceScreen>
