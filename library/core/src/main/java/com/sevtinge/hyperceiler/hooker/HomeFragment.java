@@ -34,14 +34,14 @@ public class HomeFragment extends DashboardFragment {
     @Override
     public int getPreferenceScreenResId() {
         // 桌面分区按系统版本分流：
-        //   OS4（桌面已被 Flutter + Rust 重写）→ 新页面 home_new
-        //   OS3 及以下                        → 原页面 home
+        //   OS4（桌面已被 Flutter + Rust 重写）→ 新开的 OS4 专用页 home_os4
+        //   OS3 及以下                        → 原来那一页 home_new
         // 注意 isMoreHyperOSVersion 的语义是 ">="（hyperOSSDK >= code），
-        // 所以这里必须写 4：写 3 的话 OS3 也会命中，原页面就只剩 HyperOS 2 及以下才看得到。
+        // 所以这里写 4 表示"OS4 及以上"，OS3 会落到原来那一页。
         if (isMoreHyperOSVersion(4f)) {
-            return R.xml.home_new;
+            return R.xml.home_os4;
         }
-        return R.xml.home;
+        return R.xml.home_new;
     }
 
     @Override
