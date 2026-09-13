@@ -207,6 +207,10 @@ public class HomePageActivity extends AppCompatActivity
         if (mSwitchManager != null) {
             mSwitchManager.setStyle(NavigationStyle.fromIndex(AppSettingsStore.getNavStyleIndex(this)));
             if (mViewPager != null) {
+                // 从二级页面返回时，底栏的选中项要跟随当前页面。
+                // setStyle() 用的是它自己记的 mSelectedPosition，返回过程中可能已经
+                // 被重置成 0，于是底栏跳回主页而页面没变；这里以 pager 为准再同步一次。
+                mSwitchManager.setSelectedPosition(mViewPager.getCurrentItem(), false);
                 mViewPager.post(this::updateBackdropSource);
             }
         }
