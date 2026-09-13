@@ -44,6 +44,17 @@ public class HomePageBannerHelper {
     /**
      * 4. 统一渲染 View 的方法
      */
+    /**
+     * 是不是"红色警告"那一类横幅。
+     *
+     * 除了 warning_rom / warning_framework / warning_sysver，安全模式那条
+     * （safe_mode_active）也是 createWarningBanner 造出来的红色提示，只是 id 不叫
+     * warning_*，所以这里两种前缀都认。
+     */
+    private static boolean isWarningBanner(String id) {
+        return id.startsWith("warning") || id.startsWith("safe_mode");
+    }
+
     private static View createViewFromBean(Context context, BannerBean bean, View.OnClickListener listener) {
         // 关键：attachToRoot 传 false
         View v = LayoutInflater.from(context).inflate(R.layout.settings_banner_main_layout, null, false);
@@ -107,7 +118,7 @@ public class HomePageBannerHelper {
         // （按 id 记住，见 HomePageBannerManager.dismissBanner）。
         // 用代码加而不是改布局：这套布局别的横幅也在用，改布局会波及它们。
         String bannerId = bean.getId();
-        if (bannerId != null && bannerId.startsWith("warning") && containerView != null) {
+        if (bannerId != null && containerView != null && isWarningBanner(bannerId)) {
             ImageView closeView = new ImageView(context);
             int size = Math.round(20 * context.getResources().getDisplayMetrics().density);
             android.widget.LinearLayout.LayoutParams closeParams =
