@@ -167,17 +167,17 @@ class XiaoAiSearchMaterial : BaseHook() {
         // 注意：**不能**按"第一个 boolean"去找 —— 真 helper（bb.x）里有 5 个 boolean
         // 字段（h/k/l/o/s），挑错会把整个键盘带成深色/普通样式（这就是实测到的回归）。
         // 只认已验证过的字段名，取不到就放弃这一项：宁可不生效，也不破坏外观。
-        helperClass.declaredFields.firstOrNull {
+        val supportReady = helperClass.declaredFields.firstOrNull {
             it.type == java.lang.Boolean.TYPE && it.name in MATERIAL_SUPPORT_FIELD_NAMES
         }?.let { field ->
             runCatching {
                 field.isAccessible = true
                 field.setBoolean(helper, true)
-            }
-        }
+            }.isSuccess
+        } ?: false
 
         // 2) 当前包名：唯一的 String 字段
-        findFirstFieldByExactType(helperClass, String::class.java)?.let { field ->
+        helperClass.declaredFields.firstOrNull { it.type == String::class.java }?.let { field ->
             runCatching {
                 field.isAccessible = true
                 field.set(helper, QUICK_SEARCH_PACKAGE)
@@ -193,17 +193,29 @@ class XiaoAiSearchMaterial : BaseHook() {
             field.type == Any::class.java &&
                 (field.get(helper) == null || field.get(helper) is Map<*, *>)
         }
-        versionsField?.let { field ->
+        val versionsReady = versionsField?.let { field ->
             runCatching {
                 field.isAccessible = true
                 val versions = LinkedHashMap<Any?, Any?>()
                 (field.get(helper) as? Map<*, *>)?.forEach { (k, v) -> versions[k] = v }
                 versions[QUICK_SEARCH_PACKAGE] = SUPPORTED_MATERIAL_VERSION
                 field.set(helper, versions)
-            }
+            }.isSuccess
+        } ?: false
+
+        // 4) 强制深色/浅色包集合：**只有在材质确实准备好时才动**。
+        //    原因：包名对所有输入框都被伪造成搜索包，一旦把它塞进深色集合，
+        //    等于把整个键盘强制成深色；如果此时高级材质又没生效，用户看到的就是
+        //    "全是深色普通样式"——正是那次回归的观感。宁可不改，也不留这个副作用。
+        if (!supportReady || !versionsReady) {
+            XposedLog.w(
+                TAG,
+                "material not ready (support=$supportReady versions=$versionsReady), " +
+                    "leave the force light/dark sets untouched"
+            )
+            return
         }
 
-        // 4) 强制深色/浅色包集合：两个 Set 字段，按当前主题增删搜索包名
         val collections = helperClass.declaredFields.filter {
             Collection::class.java.isAssignableFrom(it.type)
         }
