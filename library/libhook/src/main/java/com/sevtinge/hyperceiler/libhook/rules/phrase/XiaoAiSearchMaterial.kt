@@ -18,40 +18,48 @@
  */
 package com.sevtinge.hyperceiler.libhook.rules.phrase
 
-import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.RuntimeShader
 import android.inputmethodservice.InputMethodService
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import com.sevtinge.hyperceiler.common.log.XposedLog
 import com.sevtinge.hyperceiler.libhook.base.BaseHook
 
 /**
  * 超级小爱输入法：所有页面使用"高级材质"。
  *
- * 来龙去脉（都对着 0.2.343 与 0.2.790 两版 dex 核对过）：
+ * 来龙去脉（都对着 0.2.343 / 0.2.790 两版 dex 核对过）：
  *
  *  - 旧版（0.2.343）**自己画**这层材质：helper `bb.s` 里有个 `RuntimeShader` 字段，
  *    着色器源码明文躺在 dex 里（已抽出为 glass-shader-full.agsl）。它是一层
  *    **纵向 alpha 渐变 + 4x4 Bayer 抖动**的半透明表面，**不采样背后内容**、
- *    也**不向系统申请权限**，所以旧版能强开。
+ *    **不调用任何系统接口**，所以旧版能强开。
  *  - 新版（0.2.790）改成调用
  *    `android.inputmethodservice.InputMethodServiceInjector#setHyperMaterialEnabled`，
  *    而这个方法在 HyperOS 4.0 的框架里**不存在**（miui-framework.jar 有类、没这个方法），
  *    调用失败后输入法回退成深色不透明键盘（"大黑块"）。
- *  - 上游 HyperChanger 那套（伪造 helper 字段 + 包名）因此在这个版本上失去意义：
+ *  - 上游 HyperChanger 那套（伪造 helper 字段 + 包名）因此在新版上失去意义：
  *    决定权已经不在那些字段上了。
  *
- * 这里沿用**旧版的做法**：把同一段 AGSL 画在键盘窗口里，完全不碰系统接口。
- * 唯一与旧版不同的地方是渐变端点用我们自己的默认值（旧版是运行期算的，dex 里没有常量）。
+ * 实现方式：hook 键盘**根视图的 onDraw**，在那里画这层渐变。
+ * 为什么不是插一层 View —— 往 `android.R.id.content` 插会落在键盘自己不透明背景
+ * **之下**，实测两次都完全看不见；而根视图的 onDraw 恰好在"背景之上、按键之下"，
+ * 正是这层材质该在的位置（旧版也是干在自己视图上）。
+ *
+ * 踩过的坑（都留着，别再踩）：
+ *  - `uBaseColor` 是普通 half4，只能用 `setFloatUniform`。用 `setColorUniform` 会抛
+ *    "attempting to set a color uniform using the non-color specific APIs"，
+ *    而它发生在输入法的绘制过程中 → 键盘直接崩、弹不出来（复现过两次）。
+ *  - 这里所有绘制都包在 runCatching 里：出错最多是这层不画，绝不牵连键盘。
  */
 class XiaoAiSearchMaterial : BaseHook() {
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var hookedRoot: View? = null
+    private var drawWarned = false
 
     override fun init() {
         val serviceClass = findClassIfExists(IME_SERVICE_CLASS)
@@ -66,7 +74,6 @@ class XiaoAiSearchMaterial : BaseHook() {
         }
         xposed().hook(windowShown).intercept { chain ->
             val result = chain.proceed()
-            // 每次显示都对齐一次（尺寸可能变化），已挂上则跳过
             runCatching { attachGlassLayer(chain.thisObject) }
                 .onFailure { log("attach failed: ${it.message}") }
             result
@@ -74,40 +81,117 @@ class XiaoAiSearchMaterial : BaseHook() {
         log("hooked onWindowShown")
     }
 
-    /** 把着色器层插到键盘内容里：键盘背景之上、按键之下。 */
+    /** 找到键盘根视图，并 hook 它的 onDraw 来画这层玻璃。 */
     private fun attachGlassLayer(service: Any?) {
         if (service !is InputMethodService) return
         val decor = service.window?.window?.decorView as? ViewGroup ?: return
         val content = decor.findViewById<ViewGroup>(android.R.id.content) ?: decor
-        if (content.findViewWithTag<View>(GLASS_TAG) != null) return
 
         if (DEBUG_TREE) dumpTree(content, 0)
 
-        val layer = GlassLayerView(service)
-        layer.tag = GLASS_TAG
-        // index 0 在最底层，会被键盘自己的不透明背景挡住（实测：原生没材质的地方完全看不到）。
-        // 往上挪一层，压在背景之上、按键之下。
-        val index = if (content.childCount >= 2) 1 else 0
-        content.addView(
-            layer, index,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-        log("glass layer attached at index $index of ${content.javaClass.simpleName}, children=${content.childCount}")
+        // 键盘真正的视图在框架给的 inputArea（或 MIUI 的 miui_bottom_area）里面
+        val holder = findAreaById(content, "inputArea")
+            ?: findAreaById(content, "miui_bottom_area")
+            ?: content
+        if (holder.childCount == 0) {
+            log("holder ${holder.javaClass.simpleName} has no child yet")
+            return
+        }
+        val root = holder.getChildAt(0)
+        if (root === hookedRoot) return
+
+        // 直接用"换背景"的方式：键盘的材质/底色本来就画在这一层，
+        // 换掉它就是我们要的效果，而且不用 hook 任何私有方法
+        // （键盘根视图在 0.2.790 是 Compose 渲染的 l8.c，onDraw 挂不上）。
+        root.background = GlassDrawable()
+        hookedRoot = root
+        log("glass background set on ${root.javaClass.simpleName} (${root.width}x${root.height})")
     }
 
-    /** 打印键盘视图树（限深度），用来判断该插到哪一层。 */
-    private fun dumpTree(view: View, depth: Int) {
-        if (depth > 4) return
-        val indent = "  ".repeat(depth)
-        val id = try {
-            if (view.id != View.NO_ID) view.resources.getResourceEntryName(view.id) else "-"
-        } catch (e: Exception) {
-            "?"
+    /**
+     * 把旧版那段 AGSL 当作一个 Drawable 画出来。
+     * 只画不接收触摸；绘制里出任何问题都只让这一层不画，绝不牵连键盘。
+     */
+    private inner class GlassDrawable : android.graphics.drawable.Drawable() {
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private var shader: RuntimeShader? = null
+
+        override fun draw(canvas: Canvas) {
+            val w = bounds.width()
+            val h = bounds.height()
+            if (w <= 0 || h <= 0) return
+            runCatching {
+                val s = shader ?: RuntimeShader(GLASS_AGSL).also {
+                    shader = it
+                    paint.shader = it
+                }
+                setRamp(s, TOP_ALPHA, BOTTOM_ALPHA)
+                s.setFloatUniform("uHeight", h.toFloat())
+                val dark = (resources().configuration.uiMode and
+                    Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                if (dark) {
+                    s.setFloatUniform("uBaseColor", 0.010f, 0.010f, 0.012f, 1f)
+                } else {
+                    s.setFloatUniform("uBaseColor", 1f, 1f, 1f, 1f)
+                }
+                canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+            }.onFailure { logDrawFailure(it) }
         }
-        log("$indent${view.javaClass.simpleName} id=$id children=${(view as? ViewGroup)?.childCount ?: 0} h=${view.height}")
+
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
+    /** 16 段端点铺满 0..1：uPositions0..3 各 4 个，uPosition16 收尾。 */
+    private fun setRamp(s: RuntimeShader, topAlpha: Float, bottomAlpha: Float) {
+        val positions = FloatArray(17) { it / 16f }
+        s.setFloatUniform("uPositions0", positions[0], positions[1], positions[2], positions[3])
+        s.setFloatUniform("uPositions1", positions[4], positions[5], positions[6], positions[7])
+        s.setFloatUniform("uPositions2", positions[8], positions[9], positions[10], positions[11])
+        s.setFloatUniform("uPositions3", positions[12], positions[13], positions[14], positions[15])
+        s.setFloatUniform("uPosition16", positions[16])
+
+        val alphas = FloatArray(17) { i -> topAlpha + (bottomAlpha - topAlpha) * (i / 16f) }
+        s.setFloatUniform("uAlphas0", alphas[0], alphas[1], alphas[2], alphas[3])
+        s.setFloatUniform("uAlphas1", alphas[4], alphas[5], alphas[6], alphas[7])
+        s.setFloatUniform("uAlphas2", alphas[8], alphas[9], alphas[10], alphas[11])
+        s.setFloatUniform("uAlphas3", alphas[12], alphas[13], alphas[14], alphas[15])
+        s.setFloatUniform("uAlpha16", alphas[16])
+    }
+
+    private fun resources() = android.content.res.Resources.getSystem()
+
+    private fun logDrawFailure(t: Throwable) {
+        if (drawWarned) return
+        drawWarned = true
+        log("draw failed, glass skipped: ${t.message}")
+    }
+
+    /** 按资源 id 名找容器（框架的 inputArea / MIUI 的 miui_bottom_area 都这样拿）。 */
+    private fun findAreaById(view: View, name: String): ViewGroup? {
+        if (view is ViewGroup) {
+            if (view.id != View.NO_ID) {
+                val entry = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull()
+                if (entry == name) return view
+            }
+            for (i in 0 until view.childCount) {
+                findAreaById(view.getChildAt(i), name)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** 打印键盘视图树（限深度），定位插入点用。 */
+    private fun dumpTree(view: View, depth: Int) {
+        if (depth > 6) return
+        val indent = "  ".repeat(depth)
+        val id = runCatching {
+            if (view.id != View.NO_ID) view.resources.getResourceEntryName(view.id) else "-"
+        }.getOrDefault("?")
+        log("$indent${view.javaClass.simpleName} id=$id children=${(view as? ViewGroup)?.childCount ?: 0}")
         (view as? ViewGroup)?.let { group ->
             for (i in 0 until group.childCount) dumpTree(group.getChildAt(i), depth + 1)
         }
@@ -118,95 +202,17 @@ class XiaoAiSearchMaterial : BaseHook() {
         runCatching { XposedLog.w(TAG, message) }
     }
 
-    /**
-     * 用旧版那段 AGSL 画一层"上淡下浓"的玻璃表面。
-     * 只画不接收触摸，避免影响按键。
-     */
-    private class GlassLayerView(context: Context) : View(context) {
-
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private var shader: RuntimeShader? = null
-        private val bounds = RectF()
-        private var warned = false
-
-        init {
-            shader = runCatching { RuntimeShader(GLASS_AGSL) }
-                .onFailure { android.util.Log.w("XiaoAiGlass", "shader compile failed: ${it.message}") }
-                .getOrNull()
-            paint.shader = shader
-            isClickable = false
-            isFocusable = false
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            val s = shader ?: return
-            val w = width.toFloat()
-            val h = height.toFloat()
-            if (w <= 0f || h <= 0f) return
-            bounds.set(0f, 0f, w, h)
-
-            // 兜底：绘制里出任何问题只让这一层不画，绝不再把输入法带崩。
-            // 之前两次崩溃都是这里 —— setColorUniform 用在了非 layout(color) 的 uniform 上。
-            runCatching {
-                setRamp(s, TOP_ALPHA, BOTTOM_ALPHA)
-                s.setFloatUniform("uHeight", h)
-                setBaseColor(s)
-                canvas.drawRect(bounds, paint)
-            }.onFailure {
-                if (!warned) {
-                    warned = true
-                    android.util.Log.w("XiaoAiGlass", "draw failed, layer skipped: ${it.message}")
-                }
-            }
-        }
-
-        /**
-         * uBaseColor 是**普通 half4**，必须用 setFloatUniform。
-         * setColorUniform 只适用于 `layout(color)` 声明的 uniform，用错会抛
-         * "attempting to set a color uniform using the non-color specific APIs"
-         * —— 输入法在绘制里崩溃，键盘直接弹不出来（已复现两次）。
-         * 取值用**线性**分量，AGSL 工作在线性空间。
-         */
-        private fun setBaseColor(s: RuntimeShader) {
-            val dark = (resources.configuration.uiMode and
-                Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-            if (dark) {
-                s.setFloatUniform("uBaseColor", 0.010f, 0.010f, 0.012f, 1f)
-            } else {
-                s.setFloatUniform("uBaseColor", 1f, 1f, 1f, 1f)
-            }
-        }
-
-        /** 16 段端点铺满 0..1：uPositions0..3 各 4 个，uPosition16 收尾。 */
-        private fun setRamp(s: RuntimeShader, topAlpha: Float, bottomAlpha: Float) {
-            val positions = FloatArray(17) { it / 16f }
-            s.setFloatUniform("uPositions0", positions[0], positions[1], positions[2], positions[3])
-            s.setFloatUniform("uPositions1", positions[4], positions[5], positions[6], positions[7])
-            s.setFloatUniform("uPositions2", positions[8], positions[9], positions[10], positions[11])
-            s.setFloatUniform("uPositions3", positions[12], positions[13], positions[14], positions[15])
-            s.setFloatUniform("uPosition16", positions[16])
-
-            val alphas = FloatArray(17) { i -> topAlpha + (bottomAlpha - topAlpha) * (i / 16f) }
-            s.setFloatUniform("uAlphas0", alphas[0], alphas[1], alphas[2], alphas[3])
-            s.setFloatUniform("uAlphas1", alphas[4], alphas[5], alphas[6], alphas[7])
-            s.setFloatUniform("uAlphas2", alphas[8], alphas[9], alphas[10], alphas[11])
-            s.setFloatUniform("uAlphas3", alphas[12], alphas[13], alphas[14], alphas[15])
-            s.setFloatUniform("uAlpha16", alphas[16])
-        }
-    }
-
     private companion object {
         const val IME_SERVICE_CLASS = "com.mi.ime.MiInputMethodService"
-        const val GLASS_TAG = "hyperceiler.xiaoai.glass"
 
         /**
-         * 上淡下浓。上一版 0.30→0.92 是我瞎填的，实测把键盘冲成一片白（按键都看不清），
-         * 这里按"能看出渐变、但不影响按键可读性"重新取小值。
+         * 上淡下浓。上一版 0.30→0.92 是我瞎填的，实测把键盘冲成一片白（按键都看不清）；
+         * 这里按"能看出渐变、又不影响按键可读性"取小值，先确认能看见，再按观感调。
          */
         const val TOP_ALPHA = 0.03f
         const val BOTTOM_ALPHA = 0.18f
 
-        /** 打印键盘视图树（定位插入层级用，稳定后可关）。 */
+        /** 打印键盘视图树（定位用，稳定后可关）。 */
         const val DEBUG_TREE = false
 
         /** 旧版 0.2.343 里的着色器原文（未改动）。 */
