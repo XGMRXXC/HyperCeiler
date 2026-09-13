@@ -49,8 +49,17 @@ class XiaoAiSearchMaterial : BaseHook() {
     override fun init() {
         val serviceClass = findClassIfExists(IME_SERVICE_CLASS)
         if (serviceClass == null) {
-            XposedLog.w(TAG, "$IME_SERVICE_CLASS not found, skip")
+            debug("$IME_SERVICE_CLASS not found, skip")
             return
+        }
+        val helperClass = helperClassOf(serviceClass)
+        debug("service=$serviceClass helper=$helperClass")
+        if (helperClass != null) {
+            debug(
+                "helper fields: " + helperClass.declaredFields.joinToString(" ") {
+                    it.name + ":" + it.type.simpleName
+                }
+            )
         }
 
         var hooked = 0
@@ -88,12 +97,39 @@ class XiaoAiSearchMaterial : BaseHook() {
         }
 
         hooked += hookHelperRefresh()
+        hooked += hookBlurCapability()
 
         if (hooked == 0) {
-            XposedLog.w(TAG, "no compatible input lifecycle method was found")
+            debug("no compatible input lifecycle method was found")
         } else {
-            XposedLog.i(TAG, "hooked $hooked input lifecycle methods")
+            debug("hooked $hooked input lifecycle methods")
         }
+    }
+
+    /**
+     * 模糊能力检查。输入法在建材质视图之前会问"这台设备支持模糊吗"，
+     * 不把这两个静态检查强制为 true，它压根不会去创建 HyperMaterial 视图，
+     * 于是"材质准备好了"也看不到任何效果。
+     *
+     * 类名 xe.b 在 0.2.790 里依然有效（已从 dex 核对：b(Context)Z 与 c()Z 都在）。
+     */
+    private fun hookBlurCapability(): Int {
+        val blurClass = findClassIfExists(BLUR_CAPABILITY_CLASS)
+        if (blurClass == null) {
+            debug("$BLUR_CAPABILITY_CLASS not found, blur capability not forced")
+            return 0
+        }
+        var count = 0
+        findMethodExactIfExists(blurClass, "c", *arrayOf<Class<*>>())?.let { method ->
+            xposed().hook(method).intercept { true }
+            count++
+        }
+        findMethodExactIfExists(blurClass, "b", *arrayOf<Class<*>>(Context::class.java))?.let { method ->
+            xposed().hook(method).intercept { true }
+            count++
+        }
+        debug("blur capability hooks: $count")
+        return count
     }
 
     /**
@@ -208,13 +244,13 @@ class XiaoAiSearchMaterial : BaseHook() {
         //    等于把整个键盘强制成深色；如果此时高级材质又没生效，用户看到的就是
         //    "全是深色普通样式"——正是那次回归的观感。宁可不改，也不留这个副作用。
         if (!supportReady || !versionsReady) {
-            XposedLog.w(
-                TAG,
+            debug(
                 "material not ready (support=$supportReady versions=$versionsReady), " +
                     "leave the force light/dark sets untouched"
             )
             return
         }
+        debug("material ready, search package whitelisted")
 
         val collections = helperClass.declaredFields.filter {
             Collection::class.java.isAssignableFrom(it.type)
@@ -241,8 +277,20 @@ class XiaoAiSearchMaterial : BaseHook() {
         return (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     }
 
+    /**
+     * 调试日志走 logcat（HyperCeiler 自己的 XposedLog 只进应用内日志，adb 看不到）。
+     * 顺手也发一份给 XposedLog，方便你在应用内查看。
+     */
+    private fun debug(message: String) {
+        android.util.Log.w("XiaoAiMaterial", message)
+        runCatching { XposedLog.w(TAG, message) }
+    }
+
     companion object {
         private const val IME_SERVICE_CLASS = "com.mi.ime.MiInputMethodService"
+
+        /** 模糊能力检查类（0.2.790 核对过：b(Context)Z / c()Z 都在）。 */
+        private const val BLUR_CAPABILITY_CLASS = "xe.b"
         private const val QUICK_SEARCH_PACKAGE = "com.android.quicksearchbox"
 
         /** getter 名前缀（后缀是构建 flavor，可能变化）。返回类型就是 helper 类。 */
