@@ -27,4 +27,10 @@
         android:summary="@string/various_phrase_clipboardlist_more"
         android:title="@string/various_phrase_clipboardlist" />
 
+    <SwitchPreference
+        android:defaultValue="false"
+        android:key="prefs_key_phrase_xiaoai_search_material"
+        android:summary="@string/phrase_xiaoai_search_material_more"
+        android:title="@string/phrase_xiaoai_search_material" />
+
 </PreferenceScreen>
