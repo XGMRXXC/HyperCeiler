@@ -128,36 +128,32 @@ class XiaoAiSearchMaterial(
         val body = (inputArea?.takeIf { it.childCount > 0 }?.getChildAt(0)) ?: inputArea
         // 剪贴板/快捷键条：它本来就是一块纯色背景（ColorDrawable），直接换掉最准
         val bottom = findByIdName(content, "input_bottom_view") ?: findAreaById(content, "miui_bottom_area")
-        // 可见区 = 从 inputArea 顶到（底部条或键盘本体）底
-        val regionTop = inputArea ?: body
-        val regionBottom = bottom ?: body
 
-        if (body == null || regionTop == null || regionBottom == null) {
-            log("keyboard body or region not found")
+        if (body == null || bottom == null) {
+            log("keyboard body or bottom bar not found")
             return
         }
-        body.foreground = GlassDrawable(body, regionTop, regionBottom)
-        bottom?.let { bar ->
-            bar.background = GlassDrawable(bar, regionTop, regionBottom)
-        }
+        body.foreground = GlassDrawable(service, body, bottom)
+        bottom.background = GlassDrawable(service, bottom, body)
         decorated = true
-        log("glass applied: body=${body.javaClass.simpleName} bar=${bottom?.javaClass?.simpleName} " +
-            "regionTop=${regionTop.javaClass.simpleName} regionBottom=${regionBottom.javaClass.simpleName}")
+        log("glass applied: body=${body.javaClass.simpleName} bar=${bottom.javaClass.simpleName}")
     }
 
     /**
      * 旧版那段 AGSL 的绘制层。
      *
-     * 两件事必须同时成立：
-     *  1. **夹范围**：目标视图可能是整屏的（输入法窗口整屏、键盘只占下半），
-     *     所以只画 [regionTop 的顶, regionBottom 的底] 这一段，绝不铺满全屏。
-     *  2. **共用一条渐变**：两块区域按"拼起来的整体"算 uHeight，各自只画自己那段，
-     *     否则接缝处会从 0.18 跳回 0.03。
+     * 范围不再靠"猜哪个视图是键盘"：直接读**输入法窗口自己的度量**
+     * （WindowManager.currentWindowMetrics.bounds），它给的就是键盘实际占的那块区域
+     * （实测输入法窗口的父框架是 [0,150][1220,2656]，也就是状态栏下沿到屏幕底部，
+     * 而键盘只占其中下半部分 —— 之前按窗口内视图边界去夹，永远夹不对）。
+     *
+     * 于是：整条渐变的高度 = 键盘高度，底部对齐窗口底部；键盘本体和剪贴板条
+     * 各自只画落在自己范围内的那一段，所以两块颜色连续、也不会溢出到键盘之上。
      */
     private inner class GlassDrawable(
+        private val service: InputMethodService,
         private val area: View,
-        private val regionTop: View,
-        private val regionBottom: View
+        private val sibling: View
     ) : Drawable() {
 
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -173,29 +169,26 @@ class XiaoAiSearchMaterial(
                     paint.shader = it
                 }
 
-                // 键盘可见区（窗口坐标）
-                val topLoc = IntArray(2).also(regionTop::getLocationInWindow)
-                val bottomLoc = IntArray(2).also(regionBottom::getLocationInWindow)
-                val regionTopY = topLoc[1]
-                val regionBottomY = bottomLoc[1] + regionBottom.height
-                val total = (regionBottomY - regionTopY).coerceAtLeast(1)
+                // 键盘的可见范围（窗口坐标）：底部对齐窗口底部，高度取窗口自身的度量
+                val metrics = keyboardBounds(service)
+                val total = metrics.second.coerceAtLeast(1)
+                val windowBottomY = metrics.third
 
-                // 自己在这一区里的位置
                 val selfLoc = IntArray(2).also(area::getLocationInWindow)
-                val offset = selfLoc[1] - regionTopY
-                // 夹到可见区：视图比可见区大时（整屏宿主）只画这一段
+                // 自己相对"键盘可见区顶部"的位置
+                val offset = selfLoc[1] - (windowBottomY - total)
                 val drawTop = maxOf(0, -offset)
                 val drawBottom = minOf(h, total - offset)
                 if (drawBottom <= drawTop) return
 
                 if (GEOMETRY_LOG && !geometryLogged) {
                     geometryLogged = true
+                    val sibLoc = IntArray(2).also(sibling::getLocationInWindow)
                     log(
                         "geometry: area=${area.javaClass.simpleName} top=${selfLoc[1]} h=$h " +
-                            "regionTop=${regionTop.javaClass.simpleName}@$regionTopY " +
-                            "regionBottom=${regionBottom.javaClass.simpleName}@$regionBottomY " +
-                            "total=$total offset=$offset draw=[$drawTop,$drawBottom] " +
-                            "screen=${area.resources.displayMetrics.heightPixels}"
+                            "sibling=${sibling.javaClass.simpleName} top=${sibLoc[1]} h=${sibling.height} " +
+                            "keyboardTotal=$total windowBottom=$windowBottomY " +
+                            "offset=$offset draw=[$drawTop,$drawBottom]"
                     )
                 }
 
@@ -209,7 +202,6 @@ class XiaoAiSearchMaterial(
                     s.setFloatUniform("uBaseColor", 1f, 1f, 1f, 1f)
                 }
 
-                // 平移后 fragCoord.y 就是"相对可见区顶部"的位置，渐变自然衔接
                 canvas.save()
                 canvas.translate(0f, -offset.toFloat())
                 canvas.drawRect(
@@ -221,6 +213,27 @@ class XiaoAiSearchMaterial(
                 )
                 canvas.restore()
             }.onFailure { logDrawFailure(it) }
+        }
+
+        /**
+         * 返回 (窗口顶部Y, 键盘高度, 窗口底部Y)，三者都是**窗口坐标**。
+         * 优先用 currentWindowMetrics（输入法窗口的真实 bounds），失败则退回到
+         * "键盘本体 + 剪贴板条"拼出来的范围。
+         */
+        private fun keyboardBounds(service: InputMethodService): Triple<Int, Int, Int> {
+            runCatching {
+                val wm = service.getSystemService(android.view.WindowManager::class.java)
+                val rect = wm.currentWindowMetrics.bounds
+                if (rect.height() > 0) {
+                    // 窗口坐标下，窗口自己从 0 开始，所以底部 = 高度
+                    return Triple(0, rect.height(), rect.height())
+                }
+            }
+            val bodyLoc = IntArray(2).also(area::getLocationInWindow)
+            val barLoc = IntArray(2).also(sibling::getLocationInWindow)
+            val top = minOf(bodyLoc[1], barLoc[1])
+            val bottom = maxOf(bodyLoc[1] + area.height, barLoc[1] + sibling.height)
+            return Triple(top, (bottom - top).coerceAtLeast(1), bottom)
         }
 
         override fun setAlpha(alpha: Int) {}
