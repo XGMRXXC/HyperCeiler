@@ -196,6 +196,11 @@ public class HomePageFragment extends BasePreferenceFragment implements OnComple
 
         @Override
         public void onDestroyActionMode(ActionMode mode) {
+            // 退出搜索页时把底栏**重新加载一遍**。
+            // 搜索期间底栏被隐藏（见 onActionModeStarted 的 hide()），退出后只把它显示回来
+            // 不够：液态玻璃底栏的采样纹理还停在搜索前那一刻，直接显示就是重影。
+            // 重建一次等于按当前布局重新初始化（采样源、尺寸、选中态全部重走）。
+            getSwitchManager().recreateGlassBar();
             getSwitchManager().show();
             mIsInActionMode = false;
             if (mSearchInput != null) {
