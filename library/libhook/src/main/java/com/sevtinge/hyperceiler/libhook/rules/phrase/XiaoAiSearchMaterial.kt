@@ -98,6 +98,7 @@ class XiaoAiSearchMaterial : BaseHook() {
 
         hooked += hookHelperRefresh()
         hooked += hookBlurCapability()
+        if (DIAGNOSE && helperClass != null) diagnoseHelper(helperClass)
 
         if (hooked == 0) {
             debug("no compatible input lifecycle method was found")
@@ -263,18 +264,61 @@ class XiaoAiSearchMaterial : BaseHook() {
                     val set = LinkedHashSet<Any?>()
                     (field.get(helper) as? Collection<*>)?.forEach { set.add(it) }
                     set.remove(QUICK_SEARCH_PACKAGE)
-                    // 约定：先出现的是深色集合，随后是浅色集合（与上游一致）
-                    val isDarkSet = index == 0
+                    // 实测（系统浅色时把包写进 Set#1，键盘反而变深色）：
+                    // 两个集合的顺序与上游注释相反 —— Set#0 是强制浅色，Set#1 是强制深色。
+                    // 写反的后果就是"全深色普通样式"，所以这里按实测的语义来。
+                    val isDarkSet = index == 1
                     if (isDarkSet == dark) set.add(QUICK_SEARCH_PACKAGE)
                     field.set(helper, set)
+                    debug("set $index(${field.name}) dark=$isDarkSet size=${set.size}")
                 }
             }
         }
     }
 
-    private fun isDarkTheme(context: Context?): Boolean {
+    /**
+     * 临时诊断：把 helper 的每个方法都挂钩，打印调用时它看到的字段状态，
+     * 用来定位"材质准备好了却没建材质视图"卡在哪一步。
+     */
+    private fun diagnoseHelper(helperClass: Class<*>) {
+        helperClass.declaredMethods.forEach { method ->
+            runCatching {
+                xposed().hook(method).intercept { chain ->
+                    val self = chain.thisObject
+                    debug(
+                        "call ${
+                            method.name
+                        }(${method.parameterTypes.joinToString(",") { it.simpleName }}) " +
+                            "support=${readField(self, "h")} " +
+                            "pkg=${readField(self, "t")} " +
+                            "view=${readField(self, "i") != null} " +
+                            "versions=${(readField(self, "u") as? Map<*, *>)?.entries?.joinToString(",") { "${it.key}=${it.value}" }} " +
+                            "dark=${(readField(self, "v") as? Collection<*>)?.size} " +
+                            "light=${(readField(self, "w") as? Collection<*>)?.size}"
+                    )
+                    chain.proceed()
+                }
+            }
+        }
+    }
+
+    private fun readField(target: Any?, name: String): Any? = runCatching {
+        val field = target?.javaClass?.getDeclaredField(name) ?: return null
+        field.isAccessible = true
+        field.get(target)
+    }.getOrNull()
+
+    /**
+     * 主题判断用**系统**配置，而不是输入法自己的 configuration。
+     * 输入法进程可能带着自己的主题（实测在系统深色时它报的是浅色），
+     * 那样会把搜索包塞进浅色集合，和键盘实际渲染的深色矛盾，材质就不出来了。
+     */
+    private fun isDarkTheme(context: Context?): Boolean = runCatching {
+        val uiMode = android.content.res.Resources.getSystem().configuration.uiMode
+        (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    }.getOrElse {
         val uiMode = context?.resources?.configuration?.uiMode ?: return false
-        return (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     }
 
     /**
@@ -305,6 +349,9 @@ class XiaoAiSearchMaterial : BaseHook() {
          * 只认名字、不按"第一个 boolean"猜，避免把键盘带成深色/普通样式。
          */
         private val MATERIAL_SUPPORT_FIELD_NAMES = setOf("h")
+
+        /** 诊断开关：定位阶段打开，问题解决后关掉。 */
+        private const val DIAGNOSE = true
 
         /** 包版本表的候选字段名（0.2.790 实测为 u，声明类型是 Object）。 */
         private val PACKAGE_VERSIONS_FIELD_NAMES = setOf("u")
