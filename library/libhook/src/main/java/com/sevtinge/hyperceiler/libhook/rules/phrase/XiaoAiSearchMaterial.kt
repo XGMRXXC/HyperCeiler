@@ -95,17 +95,16 @@ class XiaoAiSearchMaterial : BaseHook() {
             ?: content
         if (holder.childCount == 0) {
             log("holder ${holder.javaClass.simpleName} has no child yet")
-            return
         }
-        val root = holder.getChildAt(0)
-        if (root === hookedRoot) return
-
-        // 直接用"换背景"的方式：键盘的材质/底色本来就画在这一层，
-        // 换掉它就是我们要的效果，而且不用 hook 任何私有方法
-        // （键盘根视图在 0.2.790 是 Compose 渲染的 l8.c，onDraw 挂不上）。
-        root.background = GlassDrawable()
-        hookedRoot = root
-        log("glass background set on ${root.javaClass.simpleName} (${root.width}x${root.height})")
+        // 用**前景**而不是背景：键盘本体是 Compose 画的（inputArea → c → r → w），
+        // 换背景只会被它自己画的底色盖住，于是"只有本来就透明的材质页面能看到"
+        // （实测就是这个现象）。前景画在所有子视图之上，整块键盘共用一层渐变，
+        // 而且剪贴板/快捷键条（miui_bottom_area → input_bottom_view，本来是个纯色
+        // ColorDrawable）也会被同一层覆盖，两截颜色自然统一。
+        val parent = findAreaById(content, "parentPanel") ?: content
+        parent.foreground = GlassDrawable()
+        hookedRoot = parent
+        log("glass foreground set on ${parent.javaClass.simpleName} (children=${parent.childCount})")
     }
 
     /**
@@ -184,14 +183,18 @@ class XiaoAiSearchMaterial : BaseHook() {
         return null
     }
 
-    /** 打印键盘视图树（限深度），定位插入点用。 */
+    /** 打印键盘视图树（限深度），含"这一层有没有背景"，用来判断该换哪几层。 */
     private fun dumpTree(view: View, depth: Int) {
         if (depth > 6) return
         val indent = "  ".repeat(depth)
         val id = runCatching {
             if (view.id != View.NO_ID) view.resources.getResourceEntryName(view.id) else "-"
         }.getOrDefault("?")
-        log("$indent${view.javaClass.simpleName} id=$id children=${(view as? ViewGroup)?.childCount ?: 0}")
+        val bg = view.background?.javaClass?.simpleName ?: "none"
+        log(
+            "$indent${view.javaClass.simpleName} id=$id bg=$bg " +
+                "children=${(view as? ViewGroup)?.childCount ?: 0} ${view.width}x${view.height}"
+        )
         (view as? ViewGroup)?.let { group ->
             for (i in 0 until group.childCount) dumpTree(group.getChildAt(i), depth + 1)
         }
