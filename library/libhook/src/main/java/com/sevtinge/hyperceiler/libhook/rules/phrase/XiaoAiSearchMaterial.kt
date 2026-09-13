@@ -127,14 +127,24 @@ class XiaoAiSearchMaterial(
             log("neither inputArea nor miui_bottom_area found")
             return
         }
-        body?.foreground = GlassDrawable(service)
-        bottom?.foreground = GlassDrawable(service)
+        body?.foreground = GlassDrawable(body, bottom)
+        bottom?.foreground = GlassDrawable(bottom, body)
         decorated = true
         log("glass foreground set on body=${body != null} bottom=${bottom != null}")
     }
 
-    /** 旧版那段 AGSL 的绘制层。只画不接收触摸，出错只让这一层不画。 */
-    private inner class GlassDrawable(private val context: android.content.Context) : Drawable() {
+    /**
+     * 旧版那段 AGSL 的绘制层。
+     *
+     * 关键点：两块区域**共用同一条渐变**。如果各画各的（uHeight = 自己的高度），
+     * 键盘本体底部会到 0.18，而剪贴板条又从 0.03 重新开始，接缝处会明显跳变。
+     * 这里按"两块拼起来的整体"算 uHeight，并把自己相对整体顶部的位置平移掉，
+     * 于是本体占 0..A、剪贴板条占 A..1，颜色连续。着色器本身不用改。
+     */
+    private inner class GlassDrawable(
+        private val area: View,
+        private val sibling: View?
+    ) : Drawable() {
 
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var shader: RuntimeShader? = null
@@ -142,22 +152,42 @@ class XiaoAiSearchMaterial(
         override fun draw(canvas: Canvas) {
             val w = bounds.width()
             val h = bounds.height()
-            if (w <= 0 || h <= 0) return
+            if (w <= 0 || h <= 0 || area.height <= 0) return
             runCatching {
                 val s = shader ?: RuntimeShader(GLASS_AGSL).also {
                     shader = it
                     paint.shader = it
                 }
+
+                // 两块的纵向范围（窗口坐标）拼成一条
+                val selfLoc = IntArray(2).also(area::getLocationInWindow)
+                var top = selfLoc[1]
+                var bottom = selfLoc[1] + area.height
+                if (sibling != null && sibling.height > 0) {
+                    val otherLoc = IntArray(2).also(sibling::getLocationInWindow)
+                    top = minOf(top, otherLoc[1])
+                    bottom = maxOf(bottom, otherLoc[1] + sibling.height)
+                }
+                val total = (bottom - top).coerceAtLeast(1)
+                val offset = selfLoc[1] - top
+
                 setRamp(s, TOP_ALPHA, BOTTOM_ALPHA)
-                s.setFloatUniform("uHeight", h.toFloat())
-                val dark = (context.resources.configuration.uiMode and
+                s.setFloatUniform("uHeight", total.toFloat())
+                val dark = (area.resources.configuration.uiMode and
                     Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
                 if (dark) {
                     s.setFloatUniform("uBaseColor", 0.010f, 0.010f, 0.012f, 1f)
                 } else {
                     s.setFloatUniform("uBaseColor", 1f, 1f, 1f, 1f)
                 }
-                canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+
+                // 平移后 fragCoord.y 就是"相对整体顶部"的位置，渐变自然衔接
+                canvas.save()
+                canvas.translate(0f, -offset.toFloat())
+                canvas.drawRect(
+                    0f, offset.toFloat(), w.toFloat(), (offset + h).toFloat(), paint
+                )
+                canvas.restore()
             }.onFailure { logDrawFailure(it) }
         }
 
