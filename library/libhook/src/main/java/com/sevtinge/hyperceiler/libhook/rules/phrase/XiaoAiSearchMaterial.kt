@@ -63,6 +63,10 @@ class XiaoAiSearchMaterial(
     private var decorated = false
     private var drawWarned = false
     private var geometryLogged = false
+    private var insetsLogged = false
+
+    /** 可见键盘的顶边（屏幕坐标），来自 onComputeInsets。 */
+    private var keyboardTopOnScreen = 0
 
     override fun init() {
         val serviceClass = findClassIfExists(IME_SERVICE_CLASS)
@@ -71,7 +75,42 @@ class XiaoAiSearchMaterial(
             return
         }
         hookWindowShown(serviceClass)
+        hookComputeInsets(serviceClass)
         if (forceAllPages) hookLegacyPackageSpoof(serviceClass)
+    }
+
+    /**
+     * 键盘可见区的**权威来源**：输入法每次布局都会调 onComputeInsets，
+     * 其中 contentTopInsets 就是"可见键盘的顶边"（屏幕坐标）。
+     * 窗口里的视图全都整屏高（实测 inputArea/c 都是 2506），拿视图边界永远定位不到键盘。
+     */
+    private fun hookComputeInsets(serviceClass: Class<*>) {
+        val method = findMethodExactIfExists(
+            serviceClass, "onComputeInsets",
+            *arrayOf<Class<*>>(android.inputmethodservice.InputMethodService.Insets::class.java)
+        )
+        if (method == null) {
+            log("onComputeInsets not found, keyboard top unknown")
+            return
+        }
+        xposed().hook(method).intercept { chain ->
+            val result = chain.proceed()
+            runCatching {
+                val insets = chain.getArg(0) as? android.inputmethodservice.InputMethodService.Insets
+                if (insets != null) {
+                    keyboardTopOnScreen = insets.contentTopInsets
+                    if (GEOMETRY_LOG && !insetsLogged) {
+                        insetsLogged = true
+                        log(
+                            "insets: contentTop=${insets.contentTopInsets} visibleTop=${insets.visibleTopInsets} " +
+                                "touchable=${insets.touchableInsets}"
+                        )
+                    }
+                }
+            }
+            result
+        }
+        log("hooked onComputeInsets (keyboard top)")
     }
 
     /** 开关一：每次键盘显示时把玻璃挂到两块真实区域的前景上。 */
@@ -133,10 +172,12 @@ class XiaoAiSearchMaterial(
             log("keyboard body or bottom bar not found")
             return
         }
-        body.foreground = GlassDrawable(service, body, bottom)
-        bottom.background = GlassDrawable(service, bottom, body)
+        // 只挂**一层**：body 是（全屏的）键盘内容视图，它的前景在夹到键盘范围之后
+        // 会同时盖住键盘本体和下面的剪贴板/快捷键条。之前给底部条单独换背景，
+        // 两块用的是不同机制（前景 vs 背景）、不同渐变切片，颜色必然对不上。
+        body.foreground = GlassDrawable(service, body, bottom, inputArea)
         decorated = true
-        log("glass applied: body=${body.javaClass.simpleName} bar=${bottom.javaClass.simpleName}")
+        log("glass applied as one layer: body=${body.javaClass.simpleName} bar=${bottom.javaClass.simpleName}")
     }
 
     /**
@@ -153,7 +194,8 @@ class XiaoAiSearchMaterial(
     private inner class GlassDrawable(
         private val service: InputMethodService,
         private val area: View,
-        private val sibling: View
+        private val sibling: View,
+        private val inputArea: ViewGroup?
     ) : Drawable() {
 
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -183,12 +225,13 @@ class XiaoAiSearchMaterial(
 
                 if (GEOMETRY_LOG && !geometryLogged) {
                     geometryLogged = true
-                    val sibLoc = IntArray(2).also(sibling::getLocationInWindow)
+                    val iaLoc = IntArray(2).also { inputArea?.getLocationInWindow(it) }
                     log(
-                        "geometry: area=${area.javaClass.simpleName} top=${selfLoc[1]} h=$h " +
-                            "sibling=${sibling.javaClass.simpleName} top=${sibLoc[1]} h=${sibling.height} " +
-                            "keyboardTotal=$total windowBottom=$windowBottomY " +
-                            "offset=$offset draw=[$drawTop,$drawBottom]"
+                        "geometry: areaTop=${selfLoc[1]} areaH=$h " +
+                            "keyboardTopOnScreen=$keyboardTopOnScreen " +
+                            "inputAreaTop=${iaLoc[1]} inputAreaH=${inputArea?.height} " +
+                            "total=$total windowBottom=$windowBottomY offset=$offset " +
+                            "draw=[$drawTop,$drawBottom]"
                     )
                 }
 
@@ -217,23 +260,29 @@ class XiaoAiSearchMaterial(
 
         /**
          * 返回 (窗口顶部Y, 键盘高度, 窗口底部Y)，三者都是**窗口坐标**。
-         * 优先用 currentWindowMetrics（输入法窗口的真实 bounds），失败则退回到
-         * "键盘本体 + 剪贴板条"拼出来的范围。
+         *
+         * 实测：输入法窗口和窗口内的 Compose 宿主都是**整屏**（2656 / 2506），
+         * 拿任何视图边界都定位不到键盘。所以用框架自己算的值：
+         * onComputeInsets 的 contentTopInsets = 可见键盘的顶边（屏幕坐标）。
+         * 换算到窗口坐标：减去该视图在屏幕上的 Y。
          */
         private fun keyboardBounds(service: InputMethodService): Triple<Int, Int, Int> {
-            runCatching {
-                val wm = service.getSystemService(android.view.WindowManager::class.java)
-                val rect = wm.currentWindowMetrics.bounds
-                if (rect.height() > 0) {
-                    // 窗口坐标下，窗口自己从 0 开始，所以底部 = 高度
-                    return Triple(0, rect.height(), rect.height())
-                }
+            val areaOnScreen = IntArray(2).also(area::getLocationOnScreen)
+            val screenBottom = areaOnScreen[1] + area.height
+
+            val topOnScreen = if (keyboardTopOnScreen in 1 until screenBottom) {
+                keyboardTopOnScreen
+            } else {
+                // 还没拿到 insets：退回到"键盘本体 + 底部条"的范围
+                val sibLoc = IntArray(2).also(sibling::getLocationInWindow)
+                val selfLoc = IntArray(2).also(area::getLocationInWindow)
+                areaOnScreen[1] + minOf(0, sibLoc[1] - selfLoc[1])
             }
-            val bodyLoc = IntArray(2).also(area::getLocationInWindow)
-            val barLoc = IntArray(2).also(sibling::getLocationInWindow)
-            val top = minOf(bodyLoc[1], barLoc[1])
-            val bottom = maxOf(bodyLoc[1] + area.height, barLoc[1] + sibling.height)
-            return Triple(top, (bottom - top).coerceAtLeast(1), bottom)
+
+            val top = topOnScreen - areaOnScreen[1]
+            val bottom = screenBottom - areaOnScreen[1]
+            val height = (bottom - top).coerceAtLeast(1)
+            return Triple(top, height, bottom)
         }
 
         override fun setAlpha(alpha: Int) {}
