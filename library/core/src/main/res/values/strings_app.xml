@@ -1742,6 +1742,8 @@
     <string name="various_phrase_clipboardlist">Remove the clipboard and time limits for Enhance keyboard</string>
     <string name="various_phrase_clipboardlist_more">After it\'s enabled, select the input method scope and restart it.</string>
     <string name="phrase_xiaoai_search_material">Advanced material on every page</string>
+    <string name="phrase_xiaoai_legacy_material">Restore the old material implementation</string>
+    <string name="phrase_xiaoai_legacy_material_more">The new keyboard hands material enablement to a system interface that this ROM does not provide, so it always fails. Only the old approach, where the keyboard implements the material itself, has a chance. Enabling this reveals the force switch below.</string>
     <string name="xiaoai_ime">Xiaomi Hyper XiaoAi Keyboard</string>    <string name="phrase_xiaoai_search_material_more">Use the XiaoAi keyboard\'s global search page material everywhere. Needs the keyboard in the Xposed scope; reopen the keyboard after enabling.</string>
     <string name="various_unlock_ime">Unlock Enhance keyboard limitation</string>
     <string name="various_unlock_ime_desc">Enable Enhance keyboard for the selected style on the target input method\nThe "Native" style requires an additional check of the "System Framework" scope\nSelecting the "Native" style only applies to non-Xiaomi custom versions; checking it for Xiaomi custom versions will add the keyboard to the switchable list</string>

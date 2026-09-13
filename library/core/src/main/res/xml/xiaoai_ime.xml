@@ -21,8 +21,18 @@
     app:myLocation="@string/xiaoai_ime"
     app:quick_restart="com.xiaomi.type">
 
+    <!-- 一级开关：确认使用"旧版高级材质实现方式"（新版把决定权交给了系统接口，
+         而本机框架里没有那个方法，所以只有回到旧版做法才有戏）。 -->
     <SwitchPreference
         android:defaultValue="false"
+        android:key="prefs_key_phrase_xiaoai_legacy_material"
+        android:summary="@string/phrase_xiaoai_legacy_material_more"
+        android:title="@string/phrase_xiaoai_legacy_material" />
+
+    <!-- 二级开关：只有一级打开后才可用（dependency）。 -->
+    <SwitchPreference
+        android:defaultValue="false"
+        android:dependency="prefs_key_phrase_xiaoai_legacy_material"
         android:key="prefs_key_phrase_xiaoai_search_material"
         android:summary="@string/phrase_xiaoai_search_material_more"
         android:title="@string/phrase_xiaoai_search_material" />

@@ -34,7 +34,9 @@ public class XiaoAiIme extends BaseLoad {
 
     @Override
     public void onPackageLoaded() {
-        initHook(new XiaoAiSearchMaterial(),
-            PrefsBridge.getBoolean("phrase_xiaoai_search_material"));
+        // 两级开关：先确认"用旧版实现方式"，再谈"强制所有页面"（设置页里二级依赖一级）
+        boolean legacy = PrefsBridge.getBoolean("phrase_xiaoai_legacy_material");
+        boolean forceAll = PrefsBridge.getBoolean("phrase_xiaoai_search_material");
+        initHook(new XiaoAiSearchMaterial(), legacy && forceAll);
     }
 }
