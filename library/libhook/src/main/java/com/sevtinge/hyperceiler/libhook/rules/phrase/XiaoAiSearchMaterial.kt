@@ -273,29 +273,40 @@ class XiaoAiSearchMaterial(
          * 差 60px —— 这就是白纱在面板上方露出来的那一条。
          * 拿不到资源时再退回 onComputeInsets 的 contentTopInsets。
          */
+        /**
+         * 返回 (键盘顶Y, 键盘高度, 窗口底部Y)，窗口坐标。
+         *
+         * 以 **onComputeInsets 的 contentTopInsets** 为准：它是"可见键盘顶边"，
+         * 而且**会自动跟随**用户的高度调节和 AI 润色栏（实测调高度后它从 1716 变成 1676）。
+         * 输入法自己的 keyboard_unified_height_* 只作兜底 —— 它比实际面板高 32px
+         * （≈10dp，就是之前露在面板上方的那一条）。
+         */
         private fun keyboardBounds(service: InputMethodService): Triple<Int, Int, Int> {
             val areaOnScreen = IntArray(2).also(area::getLocationOnScreen)
             val screenBottom = areaOnScreen[1] + area.height
             // 键盘一直到屏幕底部（不要扣导航栏：扣了整条会往上挪，工具栏就盖不住了）
             val bottom = screenBottom - areaOnScreen[1]
 
+            // 首选：框架给的可见键盘顶边
+            if (keyboardTopOnScreen in 1 until screenBottom) {
+                val top = keyboardTopOnScreen + topInsetPx() - areaOnScreen[1]
+                if (top in 0 until bottom) {
+                    return Triple(top, bottom - top, bottom)
+                }
+            }
+
+            // 兜底：输入法自己的尺寸资源
             val ownHeight = imeKeyboardHeightPx(area.resources)
             if (ownHeight > 0 && ownHeight < area.height) {
                 val top = (bottom - ownHeight).coerceAtLeast(0)
                 return Triple(top, bottom - top, bottom)
             }
 
-            val topOnScreen = if (keyboardTopOnScreen in 1 until screenBottom) {
-                keyboardTopOnScreen + topInsetPx()
-            } else {
-                val sibLoc = IntArray(2).also(sibling::getLocationInWindow)
-                val selfLoc = IntArray(2).also(area::getLocationInWindow)
-                areaOnScreen[1] + minOf(0, sibLoc[1] - selfLoc[1])
-            }
-
-            val top = topOnScreen - areaOnScreen[1]
-            val height = (bottom - top).coerceAtLeast(1)
-            return Triple(top, height, bottom)
+            val sibLoc = IntArray(2).also(sibling::getLocationInWindow)
+            val selfLoc = IntArray(2).also(area::getLocationInWindow)
+            val fallbackTop = areaOnScreen[1] + minOf(0, sibLoc[1] - selfLoc[1]) - areaOnScreen[1]
+            val top = fallbackTop.coerceAtLeast(0)
+            return Triple(top, (bottom - top).coerceAtLeast(1), bottom)
         }
 
         /** 导航栏/手势条高度（拿不到就当 0）。 */
