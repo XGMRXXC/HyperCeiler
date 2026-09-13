@@ -148,6 +148,9 @@ public class HomePageActivity extends AppCompatActivity
             if (height == mLastPagerHeight && top == mLastPagerTop) return;
             mLastPagerHeight = height;
             mLastPagerTop = top;
+            // 只重推状态不够：玻璃的采样纹理停在旧布局上就是重影。按当前布局重建一次
+            // 最可靠 —— 搜索框收起、键盘消失都属于这一类几何变化。
+            mSwitchManager.recreateGlassBar();
             mSwitchManager.setSelectedPosition(mViewPager.getCurrentItem(), false);
             mViewPager.post(this::updateBackdropSource);
         });

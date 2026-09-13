@@ -39,6 +39,9 @@ public class SwitchManager {
     private int mSelectedPosition = 0;
 
     private boolean isFloatingStyle;
+
+    /** 当前样式，重建底栏时要按它恢复。 */
+    private NavigationStyle mCurrentStyle = NavigationStyle.BOTTOM_LABEL;
     private OnSwitchChangeListener mUserListener;
 
     public SwitchManager(ViewGroup parent) {
@@ -83,6 +86,7 @@ public class SwitchManager {
      * 另外两种样式仍用原来的 View 版。
      */
     public void setStyle(NavigationStyle style) {
+        this.mCurrentStyle = style;
         this.isFloatingStyle = style != NavigationStyle.BOTTOM_LABEL;
         boolean liquid = style == NavigationStyle.LIQUID_GLASS;
 
@@ -100,6 +104,21 @@ public class SwitchManager {
         if (mSwitchView != null) {
             mSwitchView.updateStyle(style);
         }
+    }
+
+    /**
+     * 重建液态玻璃底栏（只在当前是液态玻璃时生效）。
+     *
+     * 只重推状态不够：搜索框展开/收起、键盘弹出/收起都会改变页面几何，而玻璃的采样
+     * 纹理与尺寸会停在旧布局上 —— 表现就是底栏出现重影（玻璃里残留上一次的画面）。
+     * 直接把它从父容器摘掉再重建，等于按当前布局重新初始化一遍：采样源、尺寸、
+     * 选中态全部重新走一次，比逐个补同步可靠。
+     */
+    public void recreateGlassBar() {
+        if (mGlassBar == null || mCurrentStyle != NavigationStyle.LIQUID_GLASS) return;
+        mParent.removeView(mGlassBar);
+        mGlassBar = null;
+        setStyle(NavigationStyle.LIQUID_GLASS);
     }
 
     private void ensureGlassBar() {
@@ -175,10 +194,18 @@ public class SwitchManager {
 
     public void show() {
         if (mSwitchView != null) mSwitchView.setVisibility(View.VISIBLE);
+        // 液态玻璃底栏也要一起显示：它和 View 版是两套视图，
+        // 只处理 mSwitchView 的话，玻璃底栏在搜索展开期间会一直留着并持续采样
+        // 搜索界面，退出搜索后玻璃里就是那层内容 —— 也就是重影。
+        if (mGlassBar != null) {
+            mGlassBar.setVisibility(View.VISIBLE);
+            mGlassBar.setBackdropSource(mBackdropView);
+        }
     }
 
     public void hide() {
         if (mSwitchView != null) mSwitchView.setVisibility(View.GONE);
+        if (mGlassBar != null) mGlassBar.setVisibility(View.GONE);
     }
 
     public SwitchView getSwitchView() {
