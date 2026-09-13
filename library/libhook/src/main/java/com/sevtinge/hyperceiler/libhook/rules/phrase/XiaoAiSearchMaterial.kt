@@ -57,13 +57,42 @@ import com.sevtinge.hyperceiler.libhook.base.BaseHook
 class XiaoAiSearchMaterial : BaseHook() {
 
     override fun init() {
-        XposedLog.w(TAG, DISABLED_REASON)
+        // 新版输入法把"启用高级材质"改成了调用 ROM 注入的框架类：
+        //     android.inputmethodservice.InputMethodServiceInjector#setHyperMaterialEnabled
+        // 旧版（0.2.343）里根本没有这个调用（对比过两版 dex），所以旧版能强开、新版被系统拒绝。
+        // 这个类是在**输入法进程内部**被调用的，因此可以从这里观察/干预。
+        val injector = findClassIfExists(INJECTOR_CLASS)
+        if (injector == null) {
+            android.util.Log.w("XiaoAiMat", "injector class not found: " + INJECTOR_CLASS)
+            return
+        }
+        var count = 0
+        injector.declaredMethods
+            .filter { it.name == "setHyperMaterialEnabled" }
+            .forEach { method ->
+                xposed().hook(method).intercept { chain ->
+                    val args = chain.args.joinToString(", ") { it?.toString() ?: "null" }
+                    val result = chain.proceed()
+                    XposedLog.w(
+                        TAG,
+                        "setHyperMaterialEnabled(" + args + ") -> " + result +
+                            if (FORCE_INJECTOR) " ; forcing true" else ""
+                    )
+                    if (FORCE_INJECTOR) true else result
+                }
+                count++
+            }
+        android.util.Log.w("XiaoAiMat", "hooked " + count + " setHyperMaterialEnabled overload(s)")
     }
 
     private companion object {
-        const val DISABLED_REASON =
-            "skipped on purpose: forcing the material makes this keyboard call " +
-                "setHyperMaterialEnabled, which fails, and it then falls back to a dark " +
-                "opaque keyboard (its own log: 'setHyperMaterialEnabled failed; ignoring')"
+        /** ROM 注入到框架命名空间的输入法注入器（0.2.790 新引入的调用）。 */
+        const val INJECTOR_CLASS = "android.inputmethodservice.InputMethodServiceInjector"
+
+        /**
+         * 先只观察（false）：把参数和真实返回值打进日志，看清系统为什么拒绝。
+         * 确认后再打开，直接报告成功。
+         */
+        const val FORCE_INJECTOR = false
     }
 }
