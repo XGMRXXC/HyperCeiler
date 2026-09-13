@@ -120,37 +120,43 @@ class XiaoAiSearchMaterial(
         val decor = service.window?.window?.decorView as? ViewGroup ?: return
         val content = decor.findViewById<ViewGroup>(android.R.id.content) ?: return
 
-        // 键盘本体：用 inputArea 里**真正承载键盘内容**的那一层（inputArea 自身会预留
-        // 额外高度，挂它上面时白底会冒到输入法之上，实测过）。
+        // 键盘本体：inputArea 里承载内容的那一层。注意它可能是**整屏**的
+        // （输入法窗口本身就是整屏、键盘只占下半部分），所以绘制时会夹到下面的
+        // 可见区范围里 —— 之前没夹，白纱直接盖住了除状态栏以外的整个屏幕。
         val inputArea = findAreaById(content, "inputArea")
         val body = (inputArea?.takeIf { it.childCount > 0 }?.getChildAt(0)) ?: inputArea
-        // 剪贴板/快捷键条：它本来就是一块纯色背景（ColorDrawable），直接换掉最准，
-        // 边界和它自身完全一致。
+        // 剪贴板/快捷键条：它本来就是一块纯色背景（ColorDrawable），直接换掉最准
         val bottom = findByIdName(content, "input_bottom_view") ?: findAreaById(content, "miui_bottom_area")
+        // 可见区 = 从 inputArea 顶到（底部条或键盘本体）底
+        val regionTop = inputArea ?: body
+        val regionBottom = bottom ?: body
 
-        if (body == null && bottom == null) {
-            log("neither the keyboard body nor the bottom bar was found")
+        if (body == null || regionTop == null || regionBottom == null) {
+            log("keyboard body or region not found")
             return
         }
-        body?.foreground = GlassDrawable(body, bottom)
+        body.foreground = GlassDrawable(body, regionTop, regionBottom)
         bottom?.let { bar ->
-            bar.background = GlassDrawable(bar, body)
+            bar.background = GlassDrawable(bar, regionTop, regionBottom)
         }
         decorated = true
-        log("glass applied on body=${body?.javaClass?.simpleName} bottom=${bottom?.javaClass?.simpleName}")
+        log("glass applied: body=${body.javaClass.simpleName} bar=${bottom?.javaClass?.simpleName} " +
+            "regionTop=${regionTop.javaClass.simpleName} regionBottom=${regionBottom.javaClass.simpleName}")
     }
 
     /**
      * 旧版那段 AGSL 的绘制层。
      *
-     * 关键点：两块区域**共用同一条渐变**。如果各画各的（uHeight = 自己的高度），
-     * 键盘本体底部会到 0.18，而剪贴板条又从 0.03 重新开始，接缝处会明显跳变。
-     * 这里按"两块拼起来的整体"算 uHeight，并把自己相对整体顶部的位置平移掉，
-     * 于是本体占 0..A、剪贴板条占 A..1，颜色连续。着色器本身不用改。
+     * 两件事必须同时成立：
+     *  1. **夹范围**：目标视图可能是整屏的（输入法窗口整屏、键盘只占下半），
+     *     所以只画 [regionTop 的顶, regionBottom 的底] 这一段，绝不铺满全屏。
+     *  2. **共用一条渐变**：两块区域按"拼起来的整体"算 uHeight，各自只画自己那段，
+     *     否则接缝处会从 0.18 跳回 0.03。
      */
     private inner class GlassDrawable(
         private val area: View,
-        private val sibling: View?
+        private val regionTop: View,
+        private val regionBottom: View
     ) : Drawable() {
 
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -166,17 +172,20 @@ class XiaoAiSearchMaterial(
                     paint.shader = it
                 }
 
-                // 两块的纵向范围（窗口坐标）拼成一条
+                // 键盘可见区（窗口坐标）
+                val topLoc = IntArray(2).also(regionTop::getLocationInWindow)
+                val bottomLoc = IntArray(2).also(regionBottom::getLocationInWindow)
+                val regionTopY = topLoc[1]
+                val regionBottomY = bottomLoc[1] + regionBottom.height
+                val total = (regionBottomY - regionTopY).coerceAtLeast(1)
+
+                // 自己在这一区里的位置
                 val selfLoc = IntArray(2).also(area::getLocationInWindow)
-                var top = selfLoc[1]
-                var bottom = selfLoc[1] + area.height
-                if (sibling != null && sibling.height > 0) {
-                    val otherLoc = IntArray(2).also(sibling::getLocationInWindow)
-                    top = minOf(top, otherLoc[1])
-                    bottom = maxOf(bottom, otherLoc[1] + sibling.height)
-                }
-                val total = (bottom - top).coerceAtLeast(1)
-                val offset = selfLoc[1] - top
+                val offset = selfLoc[1] - regionTopY
+                // 夹到可见区：视图比可见区大时（整屏宿主）只画这一段
+                val drawTop = maxOf(0, -offset)
+                val drawBottom = minOf(h, total - offset)
+                if (drawBottom <= drawTop) return
 
                 setRamp(s, TOP_ALPHA, BOTTOM_ALPHA)
                 s.setFloatUniform("uHeight", total.toFloat())
@@ -188,11 +197,15 @@ class XiaoAiSearchMaterial(
                     s.setFloatUniform("uBaseColor", 1f, 1f, 1f, 1f)
                 }
 
-                // 平移后 fragCoord.y 就是"相对整体顶部"的位置，渐变自然衔接
+                // 平移后 fragCoord.y 就是"相对可见区顶部"的位置，渐变自然衔接
                 canvas.save()
                 canvas.translate(0f, -offset.toFloat())
                 canvas.drawRect(
-                    0f, offset.toFloat(), w.toFloat(), (offset + h).toFloat(), paint
+                    0f,
+                    (offset + drawTop).toFloat(),
+                    w.toFloat(),
+                    (offset + drawBottom).toFloat(),
+                    paint
                 )
                 canvas.restore()
             }.onFailure { logDrawFailure(it) }
