@@ -18,81 +18,231 @@
  */
 package com.sevtinge.hyperceiler.libhook.rules.phrase
 
+import android.content.Context
+import android.content.res.Configuration
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.RuntimeShader
+import android.inputmethodservice.InputMethodService
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import com.sevtinge.hyperceiler.common.log.XposedLog
 import com.sevtinge.hyperceiler.libhook.base.BaseHook
 
 /**
- * 让超级小爱输入法在所有页面使用"全局搜索页"的高级材质。
+ * 超级小爱输入法：所有页面使用"高级材质"。
  *
- * 思路来自 HyperChanger 的 SearchPageAppearance（Apache-2.0，Copyright 2026 btm_m）：
- * 输入法按 `editorInfo.packageName` 决定材质档位，把包名伪造成全局搜索
- * （com.android.quicksearchbox）就能让任何输入框套上搜索页那套 HyperMaterial。
+ * 来龙去脉（都对着 0.2.343 与 0.2.790 两版 dex 核对过）：
  *
- * **当前状态：不生效，且强制反而有害，因此本 hook 不做任何写入。** 依据是输入法自己的日志：
+ *  - 旧版（0.2.343）**自己画**这层材质：helper `bb.s` 里有个 `RuntimeShader` 字段，
+ *    着色器源码明文躺在 dex 里（已抽出为 glass-shader-full.agsl）。它是一层
+ *    **纵向 alpha 渐变 + 4x4 Bayer 抖动**的半透明表面，**不采样背后内容**、
+ *    也**不向系统申请权限**，所以旧版能强开。
+ *  - 新版（0.2.790）改成调用
+ *    `android.inputmethodservice.InputMethodServiceInjector#setHyperMaterialEnabled`，
+ *    而这个方法在 HyperOS 4.0 的框架里**不存在**（miui-framework.jar 有类、没这个方法），
+ *    调用失败后输入法回退成深色不透明键盘（"大黑块"）。
+ *  - 上游 HyperChanger 那套（伪造 helper 字段 + 包名）因此在这个版本上失去意义：
+ *    决定权已经不在那些字段上了。
  *
- *     W ime_SystemClipboard: setHyperMaterialEnabled failed; ignoring
- *     D WmSystemUiDebug: set navigation bar color, Alpha=1.0, RGB:24,25,27
- *        caller: MiInputMethodService.reapplyHyperMaterialState:111
- *                MiInputMethodService.applyHyperMaterialRunnable$lambda$58:46
- *     D backgroundBlur: setMiViewMaterialType not update,0
- *
- * 也就是说：一旦把材质支持位强制为 true，输入法就会去启用材质、启用**失败**，
- * 然后回退成深色不透明键盘（用户看到的"大黑块"）。上游那套（以及本文件早先的移植）
- * 正是这么写的，所以在这个输入法版本上它的净效果是负面的。
- *
- * 移植过程中确认过的、值得留给后来者的东西（都对着 0.2.790 的 dex 核对过）：
- *  - helper 类名不能写死：上游写的 `bb.t` 现在是个无关的 Runnable，真 helper 是 `bb.x`，
- *    而且应当从 `getHyperMaterialHelper$app_iflytekFullRelease` 这个**稳定 getter 的返回类型**取；
- *  - 字段名也不能写死：上游的 f3472t…f3476x/f3458a 全部已消失；`bb.x` 中，
- *    材质支持位是唯一的那个约定名 boolean，包版本表字段**声明类型是 Object**（不是 Map）；
- *  - 两个"强制深/浅色集合"只影响主题，写错会让整个键盘变成深色，与材质无关；
- *  - 输入法自己那套偏好键（dex 里可查到）：hyper_material、hyper_material_version、
- *    hyper_material_material_version、hyper_material_allowed_packages、
- *    hyper_material_package_versions、hyper_material_force_dark / force_light
- *    —— 高级材质看起来是**版本门控**的，而上游只伪造了包白名单。
- *
- * 入口（XiaoAiIme）与推荐作用域（scope.list / xposed_scope 里的 com.xiaomi.type）保留，
- * 等输入法自身真的支持这一档、或者找到能通过那道版本门的方法后再启用。
+ * 这里沿用**旧版的做法**：把同一段 AGSL 画在键盘窗口里，完全不碰系统接口。
+ * 唯一与旧版不同的地方是渐变端点用我们自己的默认值（旧版是运行期算的，dex 里没有常量）。
  */
 class XiaoAiSearchMaterial : BaseHook() {
 
     override fun init() {
-        // 新版输入法把"启用高级材质"改成了调用 ROM 注入的框架类：
-        //     android.inputmethodservice.InputMethodServiceInjector#setHyperMaterialEnabled
-        // 旧版（0.2.343）里根本没有这个调用（对比过两版 dex），所以旧版能强开、新版被系统拒绝。
-        // 这个类是在**输入法进程内部**被调用的，因此可以从这里观察/干预。
-        val injector = findClassIfExists(INJECTOR_CLASS)
-        if (injector == null) {
-            android.util.Log.w("XiaoAiMat", "injector class not found: " + INJECTOR_CLASS)
+        val serviceClass = findClassIfExists(IME_SERVICE_CLASS)
+        if (serviceClass == null) {
+            log("$IME_SERVICE_CLASS not found, skip")
             return
         }
-        var count = 0
-        injector.declaredMethods
-            .filter { it.name == "setHyperMaterialEnabled" }
-            .forEach { method ->
-                xposed().hook(method).intercept { chain ->
-                    val args = chain.args.joinToString(", ") { it?.toString() ?: "null" }
-                    val result = chain.proceed()
-                    XposedLog.w(
-                        TAG,
-                        "setHyperMaterialEnabled(" + args + ") -> " + result +
-                            if (FORCE_INJECTOR) " ; forcing true" else ""
-                    )
-                    if (FORCE_INJECTOR) true else result
-                }
-                count++
+        val windowShown = findMethodExactIfExists(serviceClass, "onWindowShown", *arrayOf<Class<*>>())
+        if (windowShown == null) {
+            log("onWindowShown not found, skip")
+            return
+        }
+        xposed().hook(windowShown).intercept { chain ->
+            val result = chain.proceed()
+            // 每次显示都对齐一次（尺寸可能变化），已挂上则跳过
+            runCatching { attachGlassLayer(chain.thisObject) }
+                .onFailure { log("attach failed: ${it.message}") }
+            result
+        }
+        log("hooked onWindowShown")
+    }
+
+    /** 把着色器层插到键盘内容的最底下（按键之下）。 */
+    private fun attachGlassLayer(service: Any?) {
+        if (service !is InputMethodService) return
+        val decor = service.window?.window?.decorView as? ViewGroup ?: return
+        val content = decor.findViewById<ViewGroup>(android.R.id.content) ?: decor
+        if (content.findViewWithTag<View>(GLASS_TAG) != null) return
+
+        val layer = GlassLayerView(service)
+        layer.tag = GLASS_TAG
+        content.addView(
+            layer, 0,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        log("glass layer attached to ${content.javaClass.simpleName}, children=${content.childCount}")
+    }
+
+    private fun log(message: String) {
+        android.util.Log.w("XiaoAiGlass", message)
+        runCatching { XposedLog.w(TAG, message) }
+    }
+
+    /**
+     * 用旧版那段 AGSL 画一层"上淡下浓"的玻璃表面。
+     * 只画不接收触摸，避免影响按键。
+     */
+    private class GlassLayerView(context: Context) : View(context) {
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private var shader: RuntimeShader? = null
+        private val bounds = RectF()
+
+        init {
+            shader = runCatching { RuntimeShader(GLASS_AGSL) }
+                .onFailure { android.util.Log.w("XiaoAiGlass", "shader compile failed: ${it.message}") }
+                .getOrNull()
+            paint.shader = shader
+            isClickable = false
+            isFocusable = false
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val s = shader ?: return
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+            bounds.set(0f, 0f, w, h)
+
+            setRamp(s, TOP_ALPHA, BOTTOM_ALPHA)
+            s.setFloatUniform("uHeight", h)
+            val dark = (resources.configuration.uiMode and
+                Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            if (dark) {
+                s.setColorUniform("uBaseColor", Color.argb(255, 24, 24, 26))
+            } else {
+                s.setColorUniform("uBaseColor", Color.argb(255, 255, 255, 255))
             }
-        android.util.Log.w("XiaoAiMat", "hooked " + count + " setHyperMaterialEnabled overload(s)")
+            canvas.drawRect(bounds, paint)
+        }
+
+        /** 16 段端点铺满 0..1：uPositions0..3 各 4 个，uPosition16 收尾。 */
+        private fun setRamp(s: RuntimeShader, topAlpha: Float, bottomAlpha: Float) {
+            val positions = FloatArray(17) { it / 16f }
+            s.setFloatUniform("uPositions0", positions[0], positions[1], positions[2], positions[3])
+            s.setFloatUniform("uPositions1", positions[4], positions[5], positions[6], positions[7])
+            s.setFloatUniform("uPositions2", positions[8], positions[9], positions[10], positions[11])
+            s.setFloatUniform("uPositions3", positions[12], positions[13], positions[14], positions[15])
+            s.setFloatUniform("uPosition16", positions[16])
+
+            val alphas = FloatArray(17) { i -> topAlpha + (bottomAlpha - topAlpha) * (i / 16f) }
+            s.setFloatUniform("uAlphas0", alphas[0], alphas[1], alphas[2], alphas[3])
+            s.setFloatUniform("uAlphas1", alphas[4], alphas[5], alphas[6], alphas[7])
+            s.setFloatUniform("uAlphas2", alphas[8], alphas[9], alphas[10], alphas[11])
+            s.setFloatUniform("uAlphas3", alphas[12], alphas[13], alphas[14], alphas[15])
+            s.setFloatUniform("uAlpha16", alphas[16])
+        }
     }
 
     private companion object {
-        /** ROM 注入到框架命名空间的输入法注入器（0.2.790 新引入的调用）。 */
-        const val INJECTOR_CLASS = "android.inputmethodservice.InputMethodServiceInjector"
+        const val IME_SERVICE_CLASS = "com.mi.ime.MiInputMethodService"
+        const val GLASS_TAG = "hyperceiler.xiaoai.glass"
 
-        /**
-         * 先只观察（false）：把参数和真实返回值打进日志，看清系统为什么拒绝。
-         * 确认后再打开，直接报告成功。
-         */
-        const val FORCE_INJECTOR = false
+        /** 上淡下浓（用户确认的观感）。 */
+        const val TOP_ALPHA = 0.30f
+        const val BOTTOM_ALPHA = 0.92f
+
+        /** 旧版 0.2.343 里的着色器原文（未改动）。 */
+        val GLASS_AGSL = """
+            uniform half4 uPositions0;
+            uniform half4 uPositions1;
+            uniform half4 uPositions2;
+            uniform half4 uPositions3;
+            uniform half  uPosition16;
+            uniform half4 uAlphas0;
+            uniform half4 uAlphas1;
+            uniform half4 uAlphas2;
+            uniform half4 uAlphas3;
+            uniform half  uAlpha16;
+            uniform half4 uBaseColor;
+            uniform half  uHeight;
+
+            half lerpSeg(half t, half p0, half p1, half a0, half a1) {
+                if (t >= p0 && t <= p1) {
+                    half u = (t - p0) / max(p1 - p0, 1e-5);
+                    return mix(a0, a1, u);
+                }
+                return -1.0;
+            }
+
+            half lerpAlpha(half t) {
+                if (t <= uPositions0.x) return uAlphas0.x;
+                if (t >= uPosition16)   return uAlpha16;
+                half r;
+                r = lerpSeg(t, uPositions0.x, uPositions0.y, uAlphas0.x, uAlphas0.y); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions0.y, uPositions0.z, uAlphas0.y, uAlphas0.z); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions0.z, uPositions0.w, uAlphas0.z, uAlphas0.w); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions0.w, uPositions1.x, uAlphas0.w, uAlphas1.x); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions1.x, uPositions1.y, uAlphas1.x, uAlphas1.y); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions1.y, uPositions1.z, uAlphas1.y, uAlphas1.z); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions1.z, uPositions1.w, uAlphas1.z, uAlphas1.w); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions1.w, uPositions2.x, uAlphas1.w, uAlphas2.x); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions2.x, uPositions2.y, uAlphas2.x, uAlphas2.y); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions2.y, uPositions2.z, uAlphas2.y, uAlphas2.z); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions2.z, uPositions2.w, uAlphas2.z, uAlphas2.w); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions2.w, uPositions3.x, uAlphas2.w, uAlphas3.x); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions3.x, uPositions3.y, uAlphas3.x, uAlphas3.y); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions3.y, uPositions3.z, uAlphas3.y, uAlphas3.z); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions3.z, uPositions3.w, uAlphas3.z, uAlphas3.w); if (r >= 0.0) return r;
+                r = lerpSeg(t, uPositions3.w, uPosition16,    uAlphas3.w, uAlpha16);    if (r >= 0.0) return r;
+                return uAlpha16;
+            }
+
+            half bayer4(half2 fc) {
+                half x = mod(fc.x, 4.0);
+                half y = mod(fc.y, 4.0);
+                half v;
+                if (y < 1.0) {
+                    if      (x < 1.0) v =  0.0;
+                    else if (x < 2.0) v =  8.0;
+                    else if (x < 3.0) v =  2.0;
+                    else              v = 10.0;
+                } else if (y < 2.0) {
+                    if      (x < 1.0) v = 12.0;
+                    else if (x < 2.0) v =  4.0;
+                    else if (x < 3.0) v = 14.0;
+                    else              v =  6.0;
+                } else if (y < 3.0) {
+                    if      (x < 1.0) v =  3.0;
+                    else if (x < 2.0) v = 11.0;
+                    else if (x < 3.0) v =  1.0;
+                    else              v =  9.0;
+                } else {
+                    if      (x < 1.0) v = 15.0;
+                    else if (x < 2.0) v =  7.0;
+                    else if (x < 3.0) v = 13.0;
+                    else              v =  5.0;
+                }
+                return v / 16.0 - 0.5;
+            }
+
+            half4 main(float2 fragCoord) {
+                half t = clamp(half(fragCoord.y) / uHeight, 0.0, 1.0);
+                half af = lerpAlpha(t);
+                half dither = bayer4(half2(fragCoord)) / 255.0;
+                half outA = clamp(uBaseColor.a * af + dither, 0.0, 1.0);
+                return half4(uBaseColor.rgb * outA, outA);
+            }
+        """.trimIndent()
     }
 }
