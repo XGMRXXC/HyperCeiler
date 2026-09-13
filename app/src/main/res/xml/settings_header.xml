@@ -312,6 +312,13 @@
 
     <header
         android:icon="@drawable/ic_default"
+        android:id="@+id/xiaoai_ime"
+        android:summary="com.xiaomi.type"
+        android:title="@string/xiaoai_ime"
+        app:inflatedXml="@xml/xiaoai_ime" />
+
+    <header
+        android:icon="@drawable/ic_default"
         android:id="@+id/powerkeeper"
         android:summary="com.miui.powerkeeper"
         android:title="@string/powerkeeper"

@@ -4,7 +4,7 @@
   ~ HyperCeiler is free software: you can redistribute it and/or modify
   ~ it under the terms of the GNU Affero General Public License as
   ~ published by the Free Software Foundation, either version 3 of the
-  ~ License.
+  ~ License, or (at your option) any later version.
   ~
   ~ This program is distributed in the hope that it will be useful,
   ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,13 +18,13 @@
   -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    app:myLocation="@string/phrase"
-    app:quick_restart="com.miui.phrase">
+    app:myLocation="@string/xiaoai_ime"
+    app:quick_restart="com.xiaomi.type">
 
     <SwitchPreference
         android:defaultValue="false"
-        android:key="prefs_key_various_phrase_clipboardlist"
-        android:summary="@string/various_phrase_clipboardlist_more"
-        android:title="@string/various_phrase_clipboardlist" />
+        android:key="prefs_key_phrase_xiaoai_search_material"
+        android:summary="@string/phrase_xiaoai_search_material_more"
+        android:title="@string/phrase_xiaoai_search_material" />
 
 </PreferenceScreen>
