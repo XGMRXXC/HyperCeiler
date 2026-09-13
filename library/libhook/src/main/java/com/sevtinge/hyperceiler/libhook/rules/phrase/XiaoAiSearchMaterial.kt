@@ -497,7 +497,7 @@ class XiaoAiSearchMaterial(
          * 实测量到的差 ≈ 150px（本机 density 3.25 → 约 46dp），这里先给 45dp，
          * 现象是"还露一点"就加大、"收过头"就减小。
          */
-        const val KEYBOARD_TOP_INSET_DP = 45f
+        const val KEYBOARD_TOP_INSET_DP = 46f
 
         /** 打印一次实际几何（窗口/屏幕坐标），用来精确对齐可见区，稳定后关。 */
         const val GEOMETRY_LOG = true
