@@ -72,6 +72,10 @@ public class HomePageActivity extends AppCompatActivity
     public SwitchManager mSwitchManager;
     private boolean mIsUnsupportedVersionExiting;
 
+    /** 上一次同步底栏时的页面几何，用来判断"布局真的变了"。 */
+    private int mLastPagerHeight = -1;
+    private int mLastPagerTop = -1;
+
     @Override
     protected void attachBaseContext(Context newBase) {
         super.attachBaseContext(com.sevtinge.hyperceiler.utils.LanguageHelper.wrapContext(newBase));
@@ -122,7 +126,31 @@ public class HomePageActivity extends AppCompatActivity
         rebuildContentPages();
         // 液态玻璃底栏要采样"当前页"的内容，等布局完成后再解析一次
         mViewPager.post(this::updateBackdropSource);
+        watchLayoutChanges();
         new SwitchMediator(mSwitchManager, mViewPager, true).attach();
+    }
+
+    /**
+     * 键盘弹出/收起、分屏、旋转都会改变页面几何，而底栏只在少数时机（启动、换页、
+     * onResume）同步过。少了这条，玻璃会继续显示上一次采样到的画面 —— 表现就是
+     * 首页点搜索再退出来后底栏出现重影（玻璃里残留搜索页/键盘那层内容）。
+     *
+     * 用全局布局监听而不是 insets 监听：后者会覆盖系统的默认 insets 处理。
+     * 只在页面几何真的变了时才重同步，避免自己触发自己。
+     */
+    private void watchLayoutChanges() {
+        View root = findViewById(android.R.id.content);
+        if (root == null) return;
+        root.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            if (mViewPager == null || mSwitchManager == null) return;
+            int height = mViewPager.getHeight();
+            int top = mViewPager.getTop();
+            if (height == mLastPagerHeight && top == mLastPagerTop) return;
+            mLastPagerHeight = height;
+            mLastPagerTop = top;
+            mSwitchManager.setSelectedPosition(mViewPager.getCurrentItem(), false);
+            mViewPager.post(this::updateBackdropSource);
+        });
     }
 
     /**

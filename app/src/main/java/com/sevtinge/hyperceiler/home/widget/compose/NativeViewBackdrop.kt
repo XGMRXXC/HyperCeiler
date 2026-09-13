@@ -45,12 +45,26 @@ class NativeViewBackdrop(private val sourceView: View) : Backdrop {
     /**
      * 解出"当前显示的那一页"。
      *
-     * 本项目用的是 fan.viewpager.widget.ViewPager（v1）：页面是它的直接子视图、
-     * 左右并排，当前页的 left 区间包含 scrollX。放在 Kotlin 侧做，是为了跟绘制
-     * 用同一个对象 —— Java 侧设置源、Compose 侧绘制，跨层容易拿到不同步的旧值。
+     * 优先用 pager 自己的 `getCurrentItem()`：**翻页动画进行中** scrollX 正好处在两页
+     * 之间，按 scrollX 解析会采到相邻那一页 —— 表现就是玻璃里残留另一个页面的内容
+     * （在主页看到设置页的"设置 | Settings"文字那种重影）。索引拿不到时再退回 scrollX。
+     *
+     * 本项目用的是 fan.viewpager.widget.ViewPager（v1）：页面是它的直接子视图、左右并排。
+     * 放在 Kotlin 侧做，是为了跟绘制用同一个对象 —— Java 侧设置源、Compose 侧绘制，
+     * 跨层容易拿到不同步的旧值。
      */
     private fun resolveCurrentPage(root: View): View {
         if (root !is android.view.ViewGroup) return root
+
+        runCatching {
+            val getCurrentItem = root.javaClass.getMethod("getCurrentItem")
+            val index = getCurrentItem.invoke(root) as? Int
+            if (index != null && index in 0 until root.childCount) {
+                val child = root.getChildAt(index)
+                if (child.width > 0 && child.visibility == View.VISIBLE) return child
+            }
+        }
+
         val scrollX = root.scrollX
         val verbose = dumpTick % 240 == 0
         val info = if (verbose) StringBuilder() else null
