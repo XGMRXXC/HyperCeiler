@@ -83,7 +83,6 @@
         <item>com.xiaomi.vipaccount</item> <!--小米社区-->
         <item>com.iflytek.inputmethod.miui</item> <!--讯飞输入法小米版-->
         <item>com.sohu.inputmethod.sogou.xiaomi</item> <!--搜狗输入法小米版-->
-        <item>com.xiaomi.type</item> <!--超级小爱输入法-->
         <item>com.miui.voicetrigger</item> <!--语音唤醒-->
         <item>com.miui.voiceassist</item>
         <item>com.android.photopicker</item>

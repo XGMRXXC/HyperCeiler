@@ -1698,11 +1698,6 @@
     <string name="various_disable_access_device_logs">关闭访问设备日志确认</string>
     <string name="various_phrase_clipboardlist">解除输入法全面屏优化常用语剪贴板条数和时间限制</string>
     <string name="various_phrase_clipboardlist_more">开启后请在 Xposed 管理器中勾选对应输入法作用域</string>
-    <string name="phrase_xiaoai_search_material">所有页面使用高级材质</string>
-    <string name="phrase_xiaoai_legacy_material">恢复旧版高级材质实现方式</string>
-    <string name="phrase_xiaoai_legacy_material_more">新版输入法把材质启用交给了系统接口，而本机框架没有这个接口，因此必然失败；只有回到旧版那套由输入法自己实现的路子才有戏。打开后才会显示下面的强制开关。</string>
-    <string name="xiaoai_ime">超级小爱输入法</string>
-    <string name="phrase_xiaoai_search_material_more">让输入法在任何页面都套用全局搜索页那套高级玻璃材质。需要把输入法加入 Xposed 作用域，开启后重新打开输入法生效。</string>
     <string name="various_unlock_ime">解锁输入法全面屏优化</string>
     <string name="various_unlock_ime_desc">对目标输入法启用所选样式的全面屏优化\n原生风格需要额外勾选系统框架作用域\n选择原生风格后只对非小米定制版生效，小米定制版勾选将加入键盘可切换列表</string>
     <string name="various_unlock_ime_apps">目标输入法</string>
