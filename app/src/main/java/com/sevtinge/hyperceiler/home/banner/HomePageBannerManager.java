@@ -143,7 +143,32 @@ public class HomePageBannerManager {
                 context.getString(com.sevtinge.hyperceiler.core.R.string.headtip_tip_auto_safe_mode),
                 null));
         }
+        // 用户自己关掉的横幅不再出现（按 id 记，见 dismissBanner）
+        banners.removeIf(bean -> bean.getId() != null && isBannerDismissed(context, bean.getId()));
         return banners;
+    }
+
+    private static final String DISMISS_PREFS = "dismissed_banners";
+
+    /** 这条横幅是否已被用户自行关闭。 */
+    public static boolean isBannerDismissed(Context context, String id) {
+        if (id == null) return false;
+        return context.getSharedPreferences(DISMISS_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(id, false);
+    }
+
+    /**
+     * 用户自行关闭一条横幅：记住它的 id，并让缓存失效，下一次取列表就不会再有它。
+     * 红色警告这类提示用户没义务一直看着，关掉是他们的选择。
+     */
+    public static void dismissBanner(Context context, String id) {
+        if (id == null) return;
+        context.getSharedPreferences(DISMISS_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(id, true).apply();
+        synchronized (CACHE_LOCK) {
+            sCachedBannerList = null;
+            sCachedAtUptimeMs = 0L;
+        }
     }
 
     private static void addFestivalBanners(Context context, List<BannerBean> banners) {

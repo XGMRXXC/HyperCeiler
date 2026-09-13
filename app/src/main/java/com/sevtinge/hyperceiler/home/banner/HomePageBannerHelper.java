@@ -103,6 +103,33 @@ public class HomePageBannerHelper {
             containerView.setBackgroundColor(Color.parseColor(bean.getBackgroundColor()));
         }
 
+        // 红色警告这类提示，用户没义务一直看着 —— 给它们加一个"✕"，点了就永久关掉
+        // （按 id 记住，见 HomePageBannerManager.dismissBanner）。
+        // 用代码加而不是改布局：这套布局别的横幅也在用，改布局会波及它们。
+        String bannerId = bean.getId();
+        if (bannerId != null && bannerId.startsWith("warning") && containerView != null) {
+            ImageView closeView = new ImageView(context);
+            int size = Math.round(20 * context.getResources().getDisplayMetrics().density);
+            android.widget.LinearLayout.LayoutParams closeParams =
+                new android.widget.LinearLayout.LayoutParams(size, size);
+            closeParams.setMarginStart(Math.round(6 * context.getResources().getDisplayMetrics().density));
+            closeView.setLayoutParams(closeParams);
+            closeView.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            closeView.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+            closeView.setContentDescription(context.getString(android.R.string.cancel));
+            closeView.setClickable(true);
+            closeView.setOnClickListener(view -> {
+                HomePageBannerManager.dismissBanner(view.getContext(), bannerId);
+                // 立刻从当前界面上拿走，不用等下次刷新列表
+                if (view.getParent() instanceof ViewGroup) {
+                    ((ViewGroup) view.getParent()).removeView(v);
+                }
+            });
+            containerView.addView(closeView);
+            // 有 ✕ 的时候右箭头没意义
+            if (arrowRightView != null) arrowRightView.setVisibility(View.GONE);
+        }
+
         // 点击事件处理
         v.setTag(bean); // 将数据存在 tag 里方便回调获取
         v.setOnClickListener(listener);
