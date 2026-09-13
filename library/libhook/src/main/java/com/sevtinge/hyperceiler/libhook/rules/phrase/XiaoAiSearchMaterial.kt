@@ -351,7 +351,7 @@ class XiaoAiSearchMaterial : BaseHook() {
         private val MATERIAL_SUPPORT_FIELD_NAMES = setOf("h")
 
         /** 诊断开关：定位阶段打开，问题解决后关掉。 */
-        private const val DIAGNOSE = true
+        private const val DIAGNOSE = false
 
         /** 包版本表的候选字段名（0.2.790 实测为 u，声明类型是 Object）。 */
         private val PACKAGE_VERSIONS_FIELD_NAMES = setOf("u")
