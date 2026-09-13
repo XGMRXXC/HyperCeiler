@@ -34,9 +34,10 @@ public class XiaoAiIme extends BaseLoad {
 
     @Override
     public void onPackageLoaded() {
-        // 两级开关：先确认"用旧版实现方式"，再谈"强制所有页面"（设置页里二级依赖一级）
+        // 开关一：恢复旧版实现方式（画出那层玻璃）。开关二依赖开关一，选中后
+        // 再叠加旧版那套"包名伪装 + 白名单"的判定 hook。
         boolean legacy = PrefsBridge.getBoolean("phrase_xiaoai_legacy_material");
         boolean forceAll = PrefsBridge.getBoolean("phrase_xiaoai_search_material");
-        initHook(new XiaoAiSearchMaterial(), legacy && forceAll);
+        initHook(new XiaoAiSearchMaterial(forceAll), legacy);
     }
 }
