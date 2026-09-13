@@ -237,6 +237,10 @@ public class HomePageActivity extends AppCompatActivity
         // 备份恢复等外部改动可能在别处写入样式，回到前台时对齐一次
         if (mSwitchManager != null) {
             mSwitchManager.setStyle(NavigationStyle.fromIndex(AppSettingsStore.getNavStyleIndex(this)));
+            // 每次回到模块主页都把液态玻璃底栏重载一次：它的采样纹理在别的界面停留过之后
+            // 会停在旧画面上，重新显示就是重影。按当前布局重建最省事也最可靠
+            // （采样源、尺寸、选中态都会重新走一遍，不用去追是哪一次切换弄脏的）。
+            mSwitchManager.recreateGlassBar();
             if (mViewPager != null) {
                 // 从二级页面返回时，底栏的选中项要跟随当前页面。
                 // setStyle() 用的是它自己记的 mSelectedPosition，返回过程中可能已经
