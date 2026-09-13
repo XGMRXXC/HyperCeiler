@@ -24,6 +24,14 @@
   分流见 hooker/HomeFragment.java：OS4 及以上走本页，OS3 及以下走 home_new.xml。
 -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:quick_restart="com.miui.home">
+
+    <!-- 桌面在启动时读这个设置，所以改完由框架重启桌面生效（见上面的 quick_restart）。 -->
+    <SwitchPreference
+        android:defaultValue="false"
+        android:key="prefs_key_home_os4_wallpaper_scale_fix"
+        android:summary="@string/home_os4_wallpaper_scale_summary"
+        android:title="@string/home_os4_wallpaper_scale" />
 
 </PreferenceScreen>
