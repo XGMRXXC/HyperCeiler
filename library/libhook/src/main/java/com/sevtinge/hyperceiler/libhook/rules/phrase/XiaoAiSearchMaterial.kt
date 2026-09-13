@@ -172,12 +172,17 @@ class XiaoAiSearchMaterial(
             log("keyboard body or bottom bar not found")
             return
         }
-        // 只挂**一层**：body 是（全屏的）键盘内容视图，它的前景在夹到键盘范围之后
-        // 会同时盖住键盘本体和下面的剪贴板/快捷键条。之前给底部条单独换背景，
-        // 两块用的是不同机制（前景 vs 背景）、不同渐变切片，颜色必然对不上。
-        body.foreground = GlassDrawable(service, body, bottom, inputArea)
+        // 只挂**一层**，而且挂在 parentPanel 的**前景**上：
+        //   · parentPanel 是 inputArea（键盘本体）和 miui_bottom_area（剪贴板/快捷键条）
+        //     的父容器，前景在**所有子视图之后**绘制 → 没有任何子视图能盖住它；
+        //   · 挂在 body 上不行：底部条是它的兄弟、后绘制，会把自己的底色盖在我的层上；
+        //   · 给底部条单独换背景也不行：重叠区会被画两遍（前景一遍 + 背景一遍），
+        //     这正是两截颜色对不上的原因。
+        // 范围由 onComputeInsets 夹到键盘那一条，所以不会再溢出。
+        val panel = findAreaById(content, "parentPanel") ?: body
+        panel.foreground = GlassDrawable(service, panel, bottom, inputArea)
         decorated = true
-        log("glass applied as one layer: body=${body.javaClass.simpleName} bar=${bottom.javaClass.simpleName}")
+        log("glass applied as one layer on ${panel.javaClass.simpleName}")
     }
 
     /**
