@@ -30,6 +30,7 @@ import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheck
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheckFix;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.HideSafeModeTip;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.AutoConfirmInstallDialog;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.HideSafeModeDialog;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCountChecking;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableInstallerFullSafeVersion;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableSafeModelTip;
@@ -64,6 +65,8 @@ public class PackageInstaller extends BaseLoad {
         initHook(DisableSafeModelTip.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
         // 同一开关的 5.5.4.0.0 适配：旧实现按一个已不存在的 boolean 成员匹配，initDexKit 直接失败被跳过
         initHook(HideSafeModeTip.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
+        // 准备页里"建议开启安全守护"那个面板：自动点「继续安装」
+        initHook(HideSafeModeDialog.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
         // 自动允许「xxx 安装应用，是否继续」这类弹窗
         initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("允许"))), PrefsBridge.getBoolean("miui_package_installer_auto_allow_install"));
 
