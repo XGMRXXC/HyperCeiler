@@ -82,28 +82,64 @@ object HideSafeModeDialog : BaseHook() {
     }
 
     /**
-     * 找到「建议开启…」标题后，把**提示本身**隐藏掉。
+     * 找到「建议开启…」标题后，把**提示本身**隐藏掉；按钮一律不碰。
      *
-     * 注意：只藏提示，**不点任何按钮** —— 「继续安装 / 取消安装」要留给用户自己选。
-     * 做法是从标题往上走，取"最小的、还不包含继续安装按钮的那层容器"，
-     * 于是提示（标题+正文+了解安全守护）被隐藏，而按钮所在的更外层保持不动。
+     * 两道保险（上一版就是在安装页上藏过头，整页白屏）：
+     *   1. 候选容器里**不允许有任何 Button** —— 一碰到带按钮的层级就停；
+     *   2. 候选容器**高度超过屏幕的 40% 就放弃**，退回去只藏那几行文字。
+     * 提示在安装页和更新页结构不同，宁可少藏一点，也不能把内容区藏没。
      */
     private fun tryDismiss(root: View): Boolean {
         val title = findText(root) { it.contains("建议开启") } ?: return false
+
+        val screenHeight = root.resources.displayMetrics.heightPixels
+        val maxHeight = (screenHeight * 0.4f).toInt()
+
         var node: View? = title
         var target: View? = null
         var hops = 0
-        while (node != null && hops < 8) {
-            if (findButton(node) { it.contains("继续安装") } != null) break
+        while (node != null && hops < 6) {
+            if (containsButton(node)) break          // 保险 1：带按钮就停
+            if (node.height > maxHeight) break       // 保险 2：太大就停
             target = node
             node = node.parent as? View
             hops++
         }
-        val hide = target ?: title
-        if (hide.visibility == View.GONE) return true
-        hide.visibility = View.GONE
-        log("hidden tip: ${hide.javaClass.simpleName}")
-        return true
+
+        val hide = target
+        if (hide != null && hide !== title) {
+            if (hide.visibility == View.GONE) return true
+            hide.visibility = View.GONE
+            log("hidden tip container: ${hide.javaClass.simpleName} h=${hide.height}")
+            return true
+        }
+
+        // 没有合适的容器：只把那几行文字藏掉，绝不扩大范围
+        var count = 0
+        listOf(
+            "建议开启",
+            "为了安全起见",
+            "了解安全守护"
+        ).forEach { keyword ->
+            findText(root) { it.contains(keyword) }?.let { v ->
+                if (v.visibility != View.GONE) {
+                    v.visibility = View.GONE
+                    count++
+                }
+            }
+        }
+        if (count > 0) log("hidden $count tip text view(s)")
+        return count > 0
+    }
+
+    private fun containsButton(view: View): Boolean {
+        if (view is Button && view.visibility == View.VISIBLE) return true
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                if (containsButton(view.getChildAt(i))) return true
+            }
+        }
+        return false
     }
 
     private fun findText(view: View, match: (String) -> Boolean): TextView? {
