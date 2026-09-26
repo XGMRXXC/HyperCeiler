@@ -21,19 +21,16 @@ package com.sevtinge.hyperceiler.libhook.rules.packageinstaller
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.res.Resources
-import android.text.TextUtils
-import android.view.Gravity
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.sevtinge.hyperceiler.libhook.R
 import com.sevtinge.hyperceiler.libhook.base.BaseHook
-import com.sevtinge.hyperceiler.libhook.utils.api.DisplayUtils.dp2px
 import com.sevtinge.hyperceiler.libhook.utils.hookapi.tool.AppsTool.getModuleRes
 import java.io.File
 import java.text.DecimalFormat
-import kotlin.math.roundToInt
 
 /**
  * 显示更多安装包信息（安装包管理组件 5.5.4.0.0）。
@@ -112,17 +109,15 @@ object DisplayMoreApkInfoNew : BaseHook() {
 
         val rows = ArrayList<Pair<String, String>>()
         val newCode = pkgInfo.longVersionCode
-        val newName = pkgInfo.versionName.orEmpty()
         val newMin = pkgInfo.applicationInfo?.minSdkVersion ?: 0
         val newTarget = pkgInfo.applicationInfo?.targetSdkVersion ?: 0
         val newSize = sizeOf((apkInfo.call("getFileSize") as? Long) ?: 0L)
 
+        // 版本名原生那一行本来就有，这里不再重复显示
         if (installed != null) {
             // 升级/覆盖安装：把"旧 ➟ 新"摆出来，这才是这个开关当初想给的东西
-            val oldName = (apkInfo.call("getInstalledVersionName") as? String).orEmpty()
             val oldCode = (apkInfo.call("getInstalledVersionCode") as? Number)?.toLong() ?: 0L
             val oldSize = sizeOf(runCatching { File(installed.sourceDir).length() }.getOrDefault(0L))
-            rows += modRes.getString(R.string.various_install_app_info_version_name) to "$oldName ➟ $newName"
             rows += modRes.getString(R.string.various_install_app_info_version_code) to "$oldCode ➟ $newCode"
             rows += modRes.getString(R.string.various_install_app_info_sdk) to
                 "${installed.minSdkVersion}-${installed.targetSdkVersion} ➟ $newMin-$newTarget"
@@ -165,27 +160,45 @@ object DisplayMoreApkInfoNew : BaseHook() {
         parent.requestLayout()
     }
 
+    /**
+     * 外观照抄原生那一行，不自己定字号：老实现写死 17f，和自带内容对不上。
+     * textSize 拿到的是像素，用 COMPLEX_UNIT_PX 原样还回去；LayoutParams 交给父容器的
+     * generateLayoutParams 从原生行生成，宽高/边距/weight 就都跟着原生走。
+     */
     private fun copyAppearance(from: TextView, to: TextView, parent: ViewGroup) {
-        to.textSize = 17f
-        runCatching { to.setTextColor(from.textColors) }
+        to.setTextSize(TypedValue.COMPLEX_UNIT_PX, from.textSize)
+        to.setTextColor(from.currentTextColor)
         runCatching { to.typeface = from.typeface }
-        to.gravity = Gravity.START
-        to.ellipsize = TextUtils.TruncateAt.MARQUEE
-        to.isSingleLine = true
-        to.isHorizontalFadingEdgeEnabled = true
-        to.isSelected = true
-        to.setHorizontallyScrolling(true)
-        // 父容器是 LinearLayout 才用它的 LayoutParams（带一点上边距）；否则用通用的，别硬套
-        to.layoutParams = if (parent is LinearLayout) {
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).also { it.topMargin = dp2px(4f) }
-        } else {
-            ViewGroup.LayoutParams(
+        to.gravity = from.gravity
+        to.ellipsize = from.ellipsize
+        to.isSingleLine = from.isSingleLine
+        to.includeFontPadding = from.includeFontPadding
+        to.setPadding(from.paddingLeft, from.paddingTop, from.paddingRight, from.paddingBottom)
+        to.layoutParams = paramsLike(parent, from.layoutParams)
+    }
+
+    /**
+     * 照原生行的 LayoutParams 造一份同类型的（宽高/边距/weight/gravity 都跟着走）。
+     * ViewGroup.generateLayoutParams 与 generateDefaultLayoutParams 都是 protected，
+     * 所以先反射调它，失败再按类型自己拷一份 —— 两条路都不改原生那个实例。
+     */
+    private fun paramsLike(parent: ViewGroup, template: ViewGroup.LayoutParams?): ViewGroup.LayoutParams {
+        if (template == null) {
+            return ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+        }
+        runCatching {
+            val method = ViewGroup::class.java
+                .getDeclaredMethod("generateLayoutParams", ViewGroup.LayoutParams::class.java)
+            method.isAccessible = true
+            (method.invoke(parent, template) as? ViewGroup.LayoutParams)?.let { return it }
+        }
+        return when (template) {
+            is LinearLayout.LayoutParams -> LinearLayout.LayoutParams(template)
+            is ViewGroup.MarginLayoutParams -> ViewGroup.MarginLayoutParams(template)
+            else -> ViewGroup.LayoutParams(template.width, template.height)
         }
     }
 
