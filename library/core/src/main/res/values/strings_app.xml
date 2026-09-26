@@ -1754,6 +1754,8 @@
     <string name="various_phrase_clipboardlist">Remove the clipboard and time limits for Enhance keyboard</string>
     <string name="various_phrase_clipboardlist_more">After it\'s enabled, select the input method scope and restart it.</string>
     <string name="home_os4_not_supported">Not supported yet</string>
+    <string name="miui_package_installer_auto_exit_on_cancel">Exit after cancelling an install</string>
+    <string name="miui_package_installer_auto_exit_on_cancel_desc">Leaves the installer as soon as an install is cancelled, instead of staying on the "Install cancelled / Done" page. Success and failure pages are untouched.</string>
     <string name="miui_package_installer_auto_allow_install">Auto-allow the install confirmation dialog</string>
     <string name="miui_package_installer_auto_allow_install_desc">Clicks Allow for the install confirmation prompts. The data flow is untouched -- it only presses the button for you.</string>
     <string name="home_os4_not_supported_summary">The HyperOS 4 launcher is rewritten in Flutter and Rust, so its logic is not in Java and the switches on the old page have nothing to hook. The effects that would work on OS4 depend on the module being injected into the launcher process, and that path is not working yet. Entries will be added back once it is.</string>

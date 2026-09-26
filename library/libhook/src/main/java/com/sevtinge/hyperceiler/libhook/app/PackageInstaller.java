@@ -30,6 +30,7 @@ import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheck
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheckFix;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.HideSafeModeTip;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.AutoConfirmInstallDialog;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.AutoExitOnInstallCancel;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.HideSafeModeDialog;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCountChecking;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableInstallerFullSafeVersion;
@@ -69,6 +70,9 @@ public class PackageInstaller extends BaseLoad {
         initHook(HideSafeModeDialog.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
         // 自动允许「xxx 安装应用，是否继续」这类弹窗
         initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("允许"))), PrefsBridge.getBoolean("miui_package_installer_auto_allow_install"));
+
+        // 取消安装后自动退出，不再停留在「已取消安装 / 完成」页
+        initHook(AutoExitOnInstallCancel.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_auto_exit_on_cancel"));
 
         // 允许更新系统应用
         initHook(AllAsSystemApp.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_update_system_app"));
