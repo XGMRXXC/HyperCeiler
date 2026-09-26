@@ -21,66 +21,21 @@
     app:myLocation="@string/package_installer"
     app:quick_restart="com.miui.packageinstaller">
     <PreferenceCategory>
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_modify"
-            android:title="@string/miui_package_installer_modify"
-            android:defaultValue="false"
-            app:isPreferenceVisible="false" />
 
+        <!-- 安装过程里所有会打断、劝退的环节合成这一个开关；
+             细分项（推广 / 风险检测 / 云端配置 / ICP 备案 / 安全守护 / 频繁安装检查 /
+             自动确认弹窗 / 取消后退出 / 系统应用安装限制 / 上传应用信息）见
+             PackageInstaller#onPackageLoaded 里的注释 -->
         <SwitchPreference
-            android:key="prefs_key_miui_package_installer_disable_ad"
-            android:title="@string/miui_package_installer_disable_ad"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_install_risk"
-            android:title="@string/miui_package_installer_install_risk"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_disable_cloud_check"
-            android:title="@string/miui_package_installer_disable_cloud_check"
-            android:summary="@string/miui_package_installer_disable_cloud_check_desc"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_auto_allow_install"
-            android:title="@string/miui_package_installer_auto_allow_install"
-            android:summary="@string/miui_package_installer_auto_allow_install_desc"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_auto_exit_on_cancel"
-            android:title="@string/miui_package_installer_auto_exit_on_cancel"
-            android:summary="@string/miui_package_installer_auto_exit_on_cancel_desc"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_safe_model_tip"
-            android:title="@string/miui_package_installer_safe_model_tip"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_count_checking"
-            android:title="@string/miui_package_installer_count_checking"
+            android:key="prefs_key_miui_package_installer_purify_install"
+            android:title="@string/miui_package_installer_purify_install"
+            android:summary="@string/miui_package_installer_purify_install_desc"
             android:defaultValue="false" />
 
         <SwitchPreference
             android:key="prefs_key_miui_package_installer_apk_info"
             android:title="@string/miui_package_installer_apk_info"
             android:summary="@string/miui_package_installer_apk_info_desc"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_update_system_app"
-            android:title="@string/miui_package_installer_update_system_app"
-            android:summary="@string/miui_package_installer_update_system_app_desc"
-            android:defaultValue="false" />
-
-        <SwitchPreference
-            android:key="prefs_key_miui_package_installer_upload_appinfo"
-            android:title="@string/miui_package_installer_upload_appinfo"
-            android:summary="@string/miui_package_installer_upload_appinfo_desc"
             android:defaultValue="false" />
 
         <EditTextPreference

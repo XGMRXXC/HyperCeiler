@@ -45,37 +45,44 @@ public class PackageInstaller extends BaseLoad {
 
     public void onPackageLoaded() {
 
+        // 「净化安装过程」：安装过程中所有会打断、劝退的环节都由这一个开关控制，
+        // 细分项在这段注释里列清楚，方便对账：
+        //   推广 / 风险检测 / 云端配置下发 / ICP 备案弹窗 / 安全守护提示 /
+        //   安装确认弹窗自动允许 / 取消安装后自动退出 / 频繁安装检查 /
+        //   解除系统应用安装限制 / 禁止上传应用信息
+        boolean purify = PrefsBridge.getBoolean("miui_package_installer_purify_install");
+
         //
-        /*initHook(new MiuiPackageInstallModify(), PrefsBridge.getBoolean("miui_package_installer_modify"));*/
+        /*initHook(new MiuiPackageInstallModify(), purify);*/
 
         // 禁用广告
-        initHook(new DisableAd(), PrefsBridge.getBoolean("miui_package_installer_disable_ad"));
+        initHook(new DisableAd(), purify);
 
         // 禁用风险检测
-        initHook(InstallRiskDisable.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_install_risk"));
+        initHook(InstallRiskDisable.INSTANCE, purify);
 
         // 阻断云端配置下发
-        initHook(DisableCloudCheck.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_disable_cloud_check"));
-        // 同一个开关的 5.5.4.0.0 适配：旧实现的锚点在新版已消失（见 DisableCloudCheckFix 注释），
-        // 这一份按新版的类/签名定位，负责跳过「未查询到 ICP 备案信息」弹窗
-        initHook(DisableCloudCheckFix.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_disable_cloud_check"));
+        initHook(DisableCloudCheck.INSTANCE, purify);
+        // 旧实现的锚点在新版已消失（见 DisableCloudCheckFix 注释），
+        // 这一份按 5.5.4.0.0 的类/签名定位，负责跳过「未查询到 ICP 备案信息」弹窗
+        initHook(DisableCloudCheckFix.INSTANCE, purify);
         // ICP 备案弹窗改成"自动点确认"：伪造云端结果会导致后续拿不到数据、卡在准备页（实测）
-        initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("继续安装", "继续", "仍要安装"))), PrefsBridge.getBoolean("miui_package_installer_disable_cloud_check"));
+        initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("继续安装", "继续", "仍要安装"))), purify);
 
         // 禁用安全守护提示
-        initHook(DisableSafeModelTip.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
+        initHook(DisableSafeModelTip.INSTANCE, purify);
         // 同一开关的 5.5.4.0.0 适配：旧实现按一个已不存在的 boolean 成员匹配，initDexKit 直接失败被跳过
-        initHook(HideSafeModeTip.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
-        // 准备页里"建议开启安全守护"那个面板：自动点「继续安装」
-        initHook(HideSafeModeDialog.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
+        initHook(HideSafeModeTip.INSTANCE, purify);
+        // 准备页里"建议开启安全守护"那个面板：把它藏掉，按钮一律不碰
+        initHook(HideSafeModeDialog.INSTANCE, purify);
         // 自动允许「xxx 安装应用，是否继续」这类弹窗
-        initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("允许"))), PrefsBridge.getBoolean("miui_package_installer_auto_allow_install"));
+        initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("允许"))), purify);
 
         // 取消安装后自动退出，不再停留在「已取消安装 / 完成」页
-        initHook(AutoExitOnInstallCancel.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_auto_exit_on_cancel"));
+        initHook(AutoExitOnInstallCancel.INSTANCE, purify);
 
         // 允许更新系统应用
-        initHook(AllAsSystemApp.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_update_system_app"));
+        initHook(AllAsSystemApp.INSTANCE, purify);
 
         // 自定义安装来源
         initHook(new InstallSource(), !TextUtils.isEmpty(PrefsBridge.getString("miui_package_installer_install_source", "com.android.fileexplorer")));
@@ -86,10 +93,10 @@ public class PackageInstaller extends BaseLoad {
         initHook(new DisableInstallerFullSafeVersion(), PrefsBridge.getBoolean("miui_package_installer_apk_info"));
 
         // 禁用频繁安装应用检查
-        initHook(DisableCountChecking.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_count_checking"));
+        initHook(DisableCountChecking.INSTANCE, purify);
 
-        // 禁用安装前后上传应用信息, 开启后会无法扫描病毒
-        initHook(DisableAppInfoUpload.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_upload_appinfo"));
+        // 禁止安装前后上传应用信息, 开启后会无法扫描病毒
+        initHook(DisableAppInfoUpload.INSTANCE, purify);
 
     }
 }
