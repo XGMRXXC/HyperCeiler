@@ -71,20 +71,60 @@ object DisableCloudCheckFix : BaseHook() {
             log("cloud check method not found, skip")
             return
         }
+        // 只观察、不改写：先看清真实结果长什么样，以及后续拿到的是什么。
+        // 之前直接返回伪造的 Success（CloudParams 是空的）会让流程过了弹窗却拿不到数据，
+        // 页面就停在"安装包扫描中"等数据 —— 所以这里先退回观察模式确认。
         method.createHook {
-            replace { param ->
+            after { param ->
                 runCatching {
-                    val cloudParamsClass = findClass("com.miui.packageInstaller.model.CloudParams")
-                    val cloudParams = cloudParamsClass.newInstance()
-                    val successClass = findClass("com.miui.packageInstaller.model.CloudResult\$Success")
-                    successClass.getDeclaredConstructor(cloudParamsClass).newInstance(cloudParams)
-                }.getOrElse {
-                    // 拿不到模型类时退回原始实现，别把安装流程弄坏
-                    BaseHook.invokeOriginalMethod(param.executable as Method, param.thisObject, param.args)
+                    val result = param.result
+                    log("cloud check -> ${result?.javaClass?.name} ${describe(result)}")
                 }
             }
         }
-        log("hooked cloud check: ${method.declaringClass.simpleName}#${method.name}")
+        hookResultHandler()
+        log("watching cloud check: ${method.declaringClass.simpleName}#${method.name}")
+    }
+
+    /** 结果处理方（c2/CloudParams）：看它到底收到什么、又会走到哪一步 */
+    private fun hookResultHandler() {
+        runCatching {
+            val clazz = findClassIfExists(PREPARE_ACTIVITY) ?: return
+            clazz.declaredMethods
+                .filter { m ->
+                    m.parameterTypes.size == 1 &&
+                        m.parameterTypes[0].name == "com.miui.packageInstaller.model.CloudParams"
+                }
+                .forEach { m ->
+                    xposed().hook(m).intercept { chain ->
+                        val params = chain.getArg(0)
+                        log("${m.name}(CloudParams) -> ${describe(params)}")
+                        chain.proceed()
+                    }
+                }
+        }.onFailure { log("hook result handler failed: ${it.message}") }
+    }
+
+    /** 把对象里有意义的字段读出来（只读叶子字段，不整个序列化） */
+    private fun describe(obj: Any?): String {
+        if (obj == null) return "null"
+        return runCatching {
+            obj.javaClass.declaredFields
+                .filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) }
+                .take(8)
+                .joinToString(", ") { f ->
+                    f.isAccessible = true
+                    val v = runCatching { f.get(obj) }.getOrNull()
+                    val text = when (v) {
+                        null -> "null"
+                        is String, is Number, is Boolean -> v.toString()
+                        is Collection<*> -> "size=${v.size}"
+                        is Map<*, *> -> "size=${v.size}"
+                        else -> v.javaClass.simpleName
+                    }
+                    "${f.name}=$text"
+                }
+        }.getOrElse { "?" }
     }
 
     private fun log(message: String) {

@@ -1754,6 +1754,8 @@
     <string name="various_phrase_clipboardlist">Remove the clipboard and time limits for Enhance keyboard</string>
     <string name="various_phrase_clipboardlist_more">After it\'s enabled, select the input method scope and restart it.</string>
     <string name="home_os4_not_supported">Not supported yet</string>
+    <string name="miui_package_installer_auto_allow_install">Auto-allow the install confirmation dialog</string>
+    <string name="miui_package_installer_auto_allow_install_desc">Clicks Allow for the install confirmation prompts. The data flow is untouched -- it only presses the button for you.</string>
     <string name="home_os4_not_supported_summary">The HyperOS 4 launcher is rewritten in Flutter and Rust, so its logic is not in Java and the switches on the old page have nothing to hook. The effects that would work on OS4 depend on the module being injected into the launcher process, and that path is not working yet. Entries will be added back once it is.</string>
     <string name="various_unlock_ime">Unlock Enhance keyboard limitation</string>
     <string name="various_unlock_ime_desc">Enable Enhance keyboard for the selected style on the target input method\nThe "Native" style requires an additional check of the "System Framework" scope\nSelecting the "Native" style only applies to non-Xiaomi custom versions; checking it for Xiaomi custom versions will add the keyboard to the switchable list</string>

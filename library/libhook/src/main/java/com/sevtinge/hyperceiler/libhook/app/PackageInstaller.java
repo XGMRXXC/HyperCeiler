@@ -28,6 +28,8 @@ import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableAd;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableAppInfoUpload;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheck;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheckFix;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.HideSafeModeTip;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.AutoConfirmInstallDialog;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCountChecking;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableInstallerFullSafeVersion;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableSafeModelTip;
@@ -55,9 +57,15 @@ public class PackageInstaller extends BaseLoad {
         // 同一个开关的 5.5.4.0.0 适配：旧实现的锚点在新版已消失（见 DisableCloudCheckFix 注释），
         // 这一份按新版的类/签名定位，负责跳过「未查询到 ICP 备案信息」弹窗
         initHook(DisableCloudCheckFix.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_disable_cloud_check"));
+        // ICP 备案弹窗改成"自动点确认"：伪造云端结果会导致后续拿不到数据、卡在准备页（实测）
+        initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("继续安装", "继续", "仍要安装"))), PrefsBridge.getBoolean("miui_package_installer_disable_cloud_check"));
 
         // 禁用安全守护提示
         initHook(DisableSafeModelTip.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
+        // 同一开关的 5.5.4.0.0 适配：旧实现按一个已不存在的 boolean 成员匹配，initDexKit 直接失败被跳过
+        initHook(HideSafeModeTip.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
+        // 自动允许「xxx 安装应用，是否继续」这类弹窗
+        initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("允许"))), PrefsBridge.getBoolean("miui_package_installer_auto_allow_install"));
 
         // 允许更新系统应用
         initHook(AllAsSystemApp.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_update_system_app"));
