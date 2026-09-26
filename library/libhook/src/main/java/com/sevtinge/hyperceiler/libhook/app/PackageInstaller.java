@@ -28,6 +28,7 @@ import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableAd;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableAppInfoUpload;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheck;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheckFix;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.HideReportEntry;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.HideSafeModeTip;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.AutoConfirmInstallDialog;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.AutoExitOnInstallCancel;
@@ -48,8 +49,8 @@ public class PackageInstaller extends BaseLoad {
         // 「净化安装过程」：安装过程中所有会打断、劝退的环节都由这一个开关控制，
         // 细分项在这段注释里列清楚，方便对账：
         //   推广 / 风险检测 / 云端配置下发 / ICP 备案弹窗 / 安全守护提示 /
-        //   安装确认弹窗自动允许 / 取消安装后自动退出 / 频繁安装检查 /
-        //   解除系统应用安装限制 / 禁止上传应用信息
+        //   安装确认弹窗自动允许 / 取消安装后自动退出 / 右上角「举报」图标 /
+        //   频繁安装检查 / 解除系统应用安装限制 / 禁止上传应用信息
         boolean purify = PrefsBridge.getBoolean("miui_package_installer_purify_install");
 
         //
@@ -80,6 +81,9 @@ public class PackageInstaller extends BaseLoad {
 
         // 取消安装后自动退出，不再停留在「已取消安装 / 完成」页
         initHook(AutoExitOnInstallCancel.INSTANCE, purify);
+
+        // 去掉安装器右上角的「举报」图标
+        initHook(HideReportEntry.INSTANCE, purify);
 
         // 允许更新系统应用
         initHook(AllAsSystemApp.INSTANCE, purify);

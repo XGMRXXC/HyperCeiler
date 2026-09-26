@@ -1408,7 +1408,7 @@
     <!--应用包管理组件-->
     <string name="package_installer">应用包管理组件</string>
     <string name="miui_package_installer_purify_install">净化安装过程</string>
-    <string name="miui_package_installer_purify_install_desc">一键关掉安装过程中的推广、风险检测、云端配置下发、ICP 备案弹窗、安全守护提示、频繁安装检查，自动确认安装确认弹窗，取消安装后自动退出\n同时解除系统应用安装限制、禁止上传应用信息（注意：禁止上传后，安装时的病毒扫描将不可用）</string>
+    <string name="miui_package_installer_purify_install_desc">一键关掉安装过程中的推广、风险检测、云端配置下发、ICP 备案弹窗、安全守护提示、频繁安装检查，去掉右上角「举报」图标，自动确认安装确认弹窗，取消安装后自动退出\n同时解除系统应用安装限制、禁止上传应用信息（注意：禁止上传后，安装时的病毒扫描将不可用）</string>
     <string name="miui_package_installer_modify">净化页面</string>
     <string name="miui_package_installer_disable_ad">禁用推广</string>
     <string name="miui_package_installer_install_risk">禁用风险检测</string>

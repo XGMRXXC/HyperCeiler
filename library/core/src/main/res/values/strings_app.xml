@@ -1455,7 +1455,7 @@
     <!--Package installer-->
     <string name="package_installer">Package installer</string>
     <string name="miui_package_installer_purify_install">Purify the install process</string>
-    <string name="miui_package_installer_purify_install_desc">Turns off promotions, risk detection, the cloud config fetch, the ICP filing dialog, the Safe Guard prompt and the frequent-install check, auto-confirms the install dialogs, and leaves the installer when an install is cancelled\nAlso removes the system app install restriction and blocks app info upload (note: blocking the upload disables virus scanning during install)</string>
+    <string name="miui_package_installer_purify_install_desc">Turns off promotions, risk detection, the cloud config fetch, the ICP filing dialog, the Safe Guard prompt and the frequent-install check, removes the Report icon in the top right corner, auto-confirms the install dialogs, and leaves the installer when an install is cancelled\nAlso removes the system app install restriction and blocks app info upload (note: blocking the upload disables virus scanning during install)</string>
     <string name="miui_package_installer_modify">Clean page</string>
     <string name="miui_package_installer_disable_ad">Disable ads</string>
     <string name="miui_package_installer_install_risk">Disable risk detection</string>
