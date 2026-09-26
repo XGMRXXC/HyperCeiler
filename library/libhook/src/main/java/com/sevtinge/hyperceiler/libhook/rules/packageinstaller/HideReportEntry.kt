@@ -19,6 +19,7 @@
 package com.sevtinge.hyperceiler.libhook.rules.packageinstaller
 
 import android.app.Activity
+import android.content.Context
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
@@ -59,9 +60,47 @@ object HideReportEntry : BaseHook() {
     /** 每个 Activity 只做一次标题栏诊断，别刷日志 */
     private val dumped: MutableSet<Activity> = Collections.newSetFromMap(WeakHashMap<Activity, Boolean>())
 
+    /** report_text 的解析结果：setContentDescription 是热路径，别每次都查资源 */
+    @Volatile
+    private var cachedTexts: List<String>? = null
+
     override fun init() {
         hookActivities()
         hookMenus()
+        hookContentDescription()
+    }
+
+    /**
+     * 图标是 MIUIX 的 EndActionMenuItemView（不在安装器自己的 dex 里），它显示「举报」靠的是
+     * contentDescription。所以直接在 setContentDescription 里拦：命中就把这一项设成 GONE ——
+     * 这时 View 还没参与布局，进页面就不会出现，也不用等布局回调或补时检查。
+     */
+    private fun hookContentDescription() {
+        val method = runCatching {
+            View::class.java.getDeclaredMethod("setContentDescription", CharSequence::class.java)
+        }.getOrNull()
+        if (method == null) {
+            log("View#setContentDescription not found")
+            return
+        }
+        xposed().hook(method).intercept { chain ->
+            val result = chain.proceed()
+            runCatching {
+                val view = chain.thisObject as? View
+                val text = chain.args.firstOrNull() as? CharSequence
+                if (view != null && text != null) {
+                    val desc = text.toString().trim()
+                    if (desc.isNotEmpty() && reportTexts(view.context).any { it == desc }) {
+                        if (view.visibility != View.GONE) {
+                            view.visibility = View.GONE
+                            log("hid on description: ${view.javaClass.simpleName} desc=$desc")
+                        }
+                    }
+                }
+            }
+            result
+        }
+        log("hooked View#setContentDescription")
     }
 
     private fun hookActivities() {
@@ -90,30 +129,34 @@ object HideReportEntry : BaseHook() {
     }
 
     /**
-     * 更早的一条路：图标如果是 ActionBar 的菜单项，菜单刚建好就把它设成不可见，
-     * 根本不会参与布局，也就不存在"要再点一下屏幕才消失"。
+     * 备选的一条路：菜单项如果在 onCreateOptionsMenu/onPrepareOptionsMenu 里建出来，
+     * 菜单阶段就设成不可见，连 View 都不会创建。
+     * 注意要挂 android.app.Activity 上 —— 安装器的 BaseActivity 并没有声明这两个方法（实测
+     * getDeclaredMethod 直接找不到），声明它们的是框架的 Activity。
      */
     private fun hookMenus() {
+        val clazz = findClassIfExists("android.app.Activity")
+        if (clazz == null) {
+            log("android.app.Activity not found")
+            return
+        }
         var hooked = 0
-        for (name in arrayOf(BASE_ACTIVITY, PREPARE_ACTIVITY)) {
-            val clazz = findClassIfExists(name) ?: continue
-            for (method in arrayOf("onCreateOptionsMenu", "onPrepareOptionsMenu")) {
-                val m = runCatching { clazz.getDeclaredMethod(method, Menu::class.java) }.getOrNull()
-                if (m == null) {
-                    log("$name#$method not found")
-                    continue
-                }
-                xposed().hook(m).intercept { chain ->
-                    val result = chain.proceed()
-                    val activity = chain.thisObject as? Activity
-                    val menu = chain.args.firstOrNull() as? Menu
-                    if (activity != null && menu != null) {
-                        runCatching { hideMenuItems(activity, menu) }
-                    }
-                    result
-                }
-                hooked++
+        for (method in arrayOf("onCreateOptionsMenu", "onPrepareOptionsMenu")) {
+            val m = runCatching { clazz.getDeclaredMethod(method, Menu::class.java) }.getOrNull()
+            if (m == null) {
+                log("Activity#$method not found")
+                continue
             }
+            xposed().hook(m).intercept { chain ->
+                val result = chain.proceed()
+                val activity = chain.thisObject as? Activity
+                val menu = chain.args.firstOrNull() as? Menu
+                if (activity != null && menu != null) {
+                    runCatching { hideMenuItems(activity, menu) }
+                }
+                result
+            }
+            hooked++
         }
         log("hooked $hooked menu method(s)")
     }
@@ -165,20 +208,15 @@ object HideReportEntry : BaseHook() {
     }
 
     /**
-     * 没命中时把标题栏结构记一次（每个 Activity 一次，最多 12 行）。
+     * 没命中时把整棵视图树的上层结构记一次（每个 Activity 一次，最多 12 行）。
      * 安装器版本之间标题栏的 id / 描述会变，来回猜不如让它自己报一次。
      */
     private fun dumpBarOnce(activity: Activity, decor: View) {
         if (!dumped.add(activity)) return
-        val bar = findActionBar(decor)
-        if (bar == null) {
-            log("action bar not found in ${activity.javaClass.simpleName}")
-            return
-        }
-        log("action bar dump (${activity.javaClass.simpleName}):")
+        log("view dump (${activity.javaClass.simpleName}):")
         var lines = 0
         fun walk(view: View, depth: Int) {
-            if (lines >= 12 || depth > 2) return
+            if (lines >= 12 || depth > 3) return
             lines++
             val id = runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
             val desc = view.contentDescription?.toString().orEmpty()
@@ -188,37 +226,22 @@ object HideReportEntry : BaseHook() {
                 for (i in 0 until view.childCount) walk(view.getChildAt(i), depth + 1)
             }
         }
-        walk(bar, 0)
+        walk(decor, 0)
     }
 
-    private fun findActionBar(view: View): ViewGroup? {
-        val id = runCatching {
-            view.resources.getIdentifier("action_bar_container", "id", PKG)
-        }.getOrDefault(0)
-        if (id == 0) return null
-        return findById(view, id)
-    }
-
-    private fun findById(view: View, id: Int): ViewGroup? {
-        if (view.id == id && view is ViewGroup) return view
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                findById(view.getChildAt(i), id)?.let { return it }
-            }
-        }
-        return null
-    }
-
-    /** 当前 locale 下的 report_text，外加兜底字面量 */
-    private fun reportTexts(activity: Activity): List<String> {
+    /** 当前 locale 下的 report_text，外加兜底字面量；setContentDescription 是热路径，结果缓存一次 */
+    private fun reportTexts(context: Context): List<String> {
+        cachedTexts?.let { return it }
         val texts = ArrayList<String>(FALLBACK.size + 1)
         runCatching {
-            val res = activity.resources
+            val res = context.resources
             val id = res.getIdentifier(REPORT_STRING, "string", PKG)
             if (id != 0) texts.add(res.getString(id))
         }
         texts.addAll(FALLBACK)
-        return texts
+        val result = texts.distinct()
+        cachedTexts = result
+        return result
     }
 
     private fun findReport(view: View, wanted: List<String>): View? {
