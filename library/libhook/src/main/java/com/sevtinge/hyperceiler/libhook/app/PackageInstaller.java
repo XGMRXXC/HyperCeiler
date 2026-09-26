@@ -27,6 +27,7 @@ import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.AllAsSystemApp;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableAd;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableAppInfoUpload;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheck;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCloudCheckFix;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableCountChecking;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableInstallerFullSafeVersion;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableSafeModelTip;
@@ -51,6 +52,9 @@ public class PackageInstaller extends BaseLoad {
 
         // 阻断云端配置下发
         initHook(DisableCloudCheck.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_disable_cloud_check"));
+        // 同一个开关的 5.5.4.0.0 适配：旧实现的锚点在新版已消失（见 DisableCloudCheckFix 注释），
+        // 这一份按新版的类/签名定位，负责跳过「未查询到 ICP 备案信息」弹窗
+        initHook(DisableCloudCheckFix.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_disable_cloud_check"));
 
         // 禁用安全守护提示
         initHook(DisableSafeModelTip.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_safe_model_tip"));
