@@ -39,6 +39,7 @@ import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisableSafeModelT
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisplayMoreApkInfoNew;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.InstallRiskDisable;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.InstallSource;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.SkipInstallSingleAuth;
 
 @HookBase(targetPackage = "com.miui.packageinstaller")
 public class PackageInstaller extends BaseLoad {
@@ -50,7 +51,8 @@ public class PackageInstaller extends BaseLoad {
         // 细分项在这段注释里列清楚，方便对账：
         //   推广 / 风险检测 / 云端配置下发 / ICP 备案弹窗 / 安全守护提示 /
         //   安装确认弹窗自动允许 / 取消安装后自动退出 / 右上角「举报」图标 /
-        //   频繁安装检查 / 解除系统应用安装限制 / 禁止上传应用信息
+        //   频繁安装检查 / 解除系统应用安装限制 / 禁止上传应用信息 /
+        //   跳过「单次安装授权」（安全守护-增强防护/中级模式下的手动授权）
         boolean purify = PrefsBridge.getBoolean("miui_package_installer_purify_install");
 
         //
@@ -78,6 +80,11 @@ public class PackageInstaller extends BaseLoad {
         initHook(HideSafeModeDialog.INSTANCE, purify);
         // 自动允许「xxx 安装应用，是否继续」这类弹窗
         initHook(new AutoConfirmInstallDialog(new java.util.HashSet<>(java.util.Arrays.asList("允许"))), purify);
+
+        // 跳过「单次安装授权」：安全守护-增强防护/中级模式下，
+        // 未通过应用商店检测的应用会被要求去右上角「︙」手动授权一次；
+        // 这里让安装器认为"今天已经授权过"，于是点了「确认安装」就直接装
+        initHook(SkipInstallSingleAuth.INSTANCE, purify);
 
         // 取消安装后自动退出，不再停留在「已取消安装 / 完成」页
         initHook(AutoExitOnInstallCancel.INSTANCE, purify);
