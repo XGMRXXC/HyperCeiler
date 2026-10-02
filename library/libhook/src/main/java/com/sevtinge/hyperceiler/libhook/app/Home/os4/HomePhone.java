@@ -4,7 +4,7 @@
  * HyperCeiler is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
  * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
+ * License.
 
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,25 +19,31 @@
 package com.sevtinge.hyperceiler.libhook.app.Home.os4;
 
 import com.hchen.database.HookBase;
+import com.sevtinge.hyperceiler.common.utils.PrefsBridge;
 import com.sevtinge.hyperceiler.libhook.base.BaseLoad;
+import com.sevtinge.hyperceiler.libhook.rules.home.HomePortraitReverse;
+import com.sevtinge.hyperceiler.libhook.rules.home.gesture.HomeGestureOS4;
+import com.sevtinge.hyperceiler.libhook.rules.home.gesture.ShakeDevice;
+import com.sevtinge.hyperceiler.libhook.rules.home.other.HomeSettingsOS4;
+import com.sevtinge.hyperceiler.libhook.rules.home.other.NativeHomeHooksOS4;
 
-/**
- * OS4 桌面的入口（HyperOS 4 的桌面已用 Flutter + Dart + Rust 重写：APK 里是
- * libhyper_os_flutter.so / libapp.so / libresources_frb.so，逻辑不在 Java 里）。
- *
- * 目前**没有挂任何 hook**：os3 那一套是针对旧 Java 桌面的类写的，在这里找不到目标；
- * 而 OS4 上可行的做法（改系统属性、绕设备档位判断、写 secure 设置等）都要求模块能
- * 注入桌面进程 —— 当前这条通道没打通，接口设了也是空转，所以 OS4 页面只标注"暂不支持"。
- *
- * 保留这个入口是为了以后通道打通时有个落脚点：届时 hook 加在这里，并把 home_os4.xml
- * 的条目补回来即可。
- */
 @HookBase(targetPackage = "com.miui.home", deviceType = 2, minOSVersion = 4.0F)
 public class HomePhone extends BaseLoad {
-
     @Override
     public void onPackageLoaded() {
-        // 只留一行日志：便于确认这个进程里模块到底有没有起来
-        android.util.Log.w("Os4HomePhone", "entry loaded (no hooks yet)");
+        NativeHomeHooksOS4.INSTANCE.init();
+        initHook(HomeSettingsOS4.INSTANCE, true);
+        boolean gesturesEnabled = PrefsBridge.getBoolean("home_gesture_enable");
+        boolean hasTouchGesture = PrefsBridge.getInt("home_gesture_double_tap_action", 0) > 0
+            || PrefsBridge.getInt("home_gesture_up_swipe_action", 0) > 0
+            || PrefsBridge.getInt("home_gesture_down_swipe_action", 0) > 0
+            || PrefsBridge.getInt("home_gesture_up_swipe2_action", 0) > 0
+            || PrefsBridge.getInt("home_gesture_down_swipe2_action", 0) > 0;
+
+        // OS4 dock background is installed by SystemFrameworkB (HomeDockWindow).
+        initHook(HomeGestureOS4.INSTANCE, gesturesEnabled && hasTouchGesture);
+        initHook(new ShakeDevice(), gesturesEnabled
+            && PrefsBridge.getInt("home_gesture_shake_action", 0) > 0);
+        initHook(new HomePortraitReverse(), PrefsBridge.getBoolean("home_other_portrait_reverse"));
     }
 }

@@ -50,9 +50,11 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
     repositories {
-        // 本机直连 Maven Central 只有 ~200KB/s，Compose 依赖很大，走阿里云镜像
+        // Mirrors first: several artifacts on google()/mavenCentral() are redirected
+        // to github.com release assets, which is unreachable here and stalls the build.
         maven("https://maven.aliyun.com/repository/public")
         maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/gradle-plugin")
         google()
         mavenCentral()
         mavenLocal()

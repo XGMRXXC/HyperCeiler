@@ -18,3 +18,6 @@ signing.properties
 /library/hook
 .vscode
 .reasonix
+*.apk
+/handover/
+/.workbuddy/

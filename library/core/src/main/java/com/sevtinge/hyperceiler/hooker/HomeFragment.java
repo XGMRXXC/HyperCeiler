@@ -22,39 +22,74 @@ package com.sevtinge.hyperceiler.hooker;
 
 import static com.sevtinge.hyperceiler.libhook.utils.api.DeviceHelper.System.isMoreHyperOSVersion;
 
-import com.sevtinge.hyperceiler.prefs.LayoutPreference;
+import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.os.Bundle;
+
 import com.sevtinge.hyperceiler.core.R;
 import com.sevtinge.hyperceiler.dashboard.DashboardFragment;
 import com.sevtinge.hyperceiler.libhook.utils.pkg.CheckModifyUtils;
+import com.sevtinge.hyperceiler.prefs.LayoutPreference;
 
 public class HomeFragment extends DashboardFragment {
 
     LayoutPreference mHeader;
+    LayoutPreference mHeaderHomeIsRust;
+    LayoutPreference mHeaderHomeIsRustNoSupport;
 
     @Override
     public int getPreferenceScreenResId() {
-        // 桌面分区按系统版本分流：
-        //   OS4（桌面已被 Flutter + Rust 重写）→ home_os4（目前只标注"暂不支持"）
-        //   OS3 及以下                        → 原来那一页 home_new
-        // 注意 isMoreHyperOSVersion 的语义是 ">="（hyperOSSDK >= code），
-        // 所以这里写 4 表示"OS4 及以上"，OS3 会落到原来那一页。
-        if (isMoreHyperOSVersion(4f)) {
-            return R.xml.home_os4;
+        if (isMoreHyperOSVersion(3f)) {
+            return R.xml.home_new;
         }
-        return R.xml.home_new;
+        return R.xml.home;
+    }
+
+    public static boolean isHyperOsPackage(Context context, String packageName) {
+        try {
+            ApplicationInfo appInfo = context.getPackageManager()
+                .getApplicationInfo(
+                    packageName,
+                    PackageManager.GET_META_DATA
+                );
+
+            Bundle metaData = appInfo.metaData;
+
+            return metaData != null
+                && metaData.getBoolean("hyperos_package", false);
+
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
     }
 
     @Override
     public void initPrefs() {
         mHeader = findPreference("prefs_key_home_unsupported");
+        mHeaderHomeIsRust = findPreference("prefs_key_home_is_rust");
+        mHeaderHomeIsRustNoSupport = findPreference("prefs_key_home_is_rust_no_support");
+
+        final String PREF_KEY_VERSION = "prefs_key_framework_check_version";
+        final String PREF_KEY_VERSION_CODE = "prefs_key_framework_check_version_code";
+        final String PREF_KEY_API_VERSION = "prefs_key_framework_check_api_version";
 
         boolean check = CheckModifyUtils.INSTANCE.getCheckResult(getContext(), "com.miui.home");
         boolean isDebugMode = getSharedPreferences().getBoolean("prefs_key_development_debug_mode", false);
+        boolean isHyperOsPackage = isHyperOsPackage(getContext(), "com.miui.home");
 
-        // 两个页面都有这个条目，但分流改了之后仍防它缺失，避免空指针
-        if (mHeader != null) {
-            mHeader.setVisible(check && !isDebugMode);
-        }
+
+        String XposedVersion = getSharedPreferences().getString(PREF_KEY_VERSION, "Unknown");
+        long XposedVersionCode = getSharedPreferences().getLong(PREF_KEY_VERSION_CODE, 0);
+        int XposedApiVersion = getSharedPreferences().getInt(PREF_KEY_API_VERSION, 0);
+
+        boolean isRustNoSupport = isHyperOsPackage && !(XposedApiVersion >= 102
+            && XposedVersionCode >= 7846
+            && XposedVersion.contains("it"));
+
+        mHeader.setVisible(check && !isDebugMode);
+        mHeaderHomeIsRust.setVisible(isHyperOsPackage);
+        mHeaderHomeIsRustNoSupport.setVisible(isRustNoSupport);
     }
 
 }

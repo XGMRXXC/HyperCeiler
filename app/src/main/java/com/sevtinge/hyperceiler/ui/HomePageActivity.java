@@ -46,6 +46,7 @@ import com.sevtinge.hyperceiler.settings.SettingsFragment;
 import com.sevtinge.hyperceiler.settings.SettingsPageFragment;
 import com.sevtinge.hyperceiler.utils.NoticeProcessor;
 import com.sevtinge.hyperceiler.utils.PersistConfig;
+import com.sevtinge.hyperceiler.utils.XposedActivateHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -245,6 +246,7 @@ public class HomePageActivity extends AppCompatActivity
     protected void onResume() {
         super.onResume();
         PageDecorator.onResume();
+        if (mContentAdapter != null) XposedActivateHelper.init(this);
         // 备份恢复等外部改动可能在别处写入样式，回到前台时对齐一次
         if (mSwitchManager != null) {
             mSwitchManager.setStyle(NavigationStyle.fromIndex(AppSettingsStore.getNavStyleIndex(this)));
@@ -265,6 +267,7 @@ public class HomePageActivity extends AppCompatActivity
 
     @Override
     protected void onPause() {
+        XposedActivateHelper.clear(this);
         super.onPause();
         PageDecorator.onPause();
     }
@@ -279,6 +282,7 @@ public class HomePageActivity extends AppCompatActivity
 
     @Override
     public void onDestroy() {
+        XposedActivateHelper.clear(this);
         super.onDestroy();
     }
 
