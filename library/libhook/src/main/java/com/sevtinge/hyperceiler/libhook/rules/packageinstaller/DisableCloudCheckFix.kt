@@ -86,24 +86,47 @@ object DisableCloudCheckFix : BaseHook() {
         log("watching cloud check: ${method.declaringClass.simpleName}#${method.name}")
     }
 
-    /** 结果处理方（c2/CloudParams）：看它到底收到什么、又会走到哪一步 */
+    /** 结果处理方（c2/CloudParams）：看它收到什么，并在失败时伪装成"校验通过" */
     private fun hookResultHandler() {
         runCatching {
             val clazz = findClassIfExists(PREPARE_ACTIVITY) ?: return
             clazz.declaredMethods
                 .filter { m ->
                     m.parameterTypes.size == 1 &&
-                        m.parameterTypes[0].name == "com.miui.packageInstaller.model.CloudParams"
+                        m.parameterTypes[0].name == CLOUD_PARAMS
                 }
                 .forEach { m ->
-                    xposed().hook(m).intercept { chain ->
-                        val params = chain.getArg(0)
-                        log("${m.name}(CloudParams) -> ${describe(params)}")
-                        chain.proceed()
+                    m.createHook {
+                        before { param ->
+                            val arg = param.args?.getOrNull(0)
+                            log("${m.name}(CloudParams) -> ${describe(arg)}")
+                            // 联网检测失败时这里收到 null。反编译 NewInstallerPrepareActivity$t
+                            // 可以看到：CloudParams 为 null 就直接 return（页面永远停在原地，
+                            // 也就是"点继续安装没反应"）；非 null 时才会继续执行
+                            // u.d(activity, e1(activity), y1().G()) 把安装推进下去。
+                            // 而那个 lambda 对这个参数只判空、不读字段（后续数据都取自 activity
+                            // 自己），所以塞一个默认构造的 CloudParams 就足以让流程按
+                            // "云端校验已通过"继续，全程仍然走离线安装。
+                            if (arg == null) {
+                                CloudCheckState.failed = true
+                                val fake = newCloudParams()
+                                if (fake != null) {
+                                    param.args[0] = fake
+                                    log("cloud check faked as passed: ${fake.javaClass.name}")
+                                } else {
+                                    log("CloudParams unavailable, leaving null")
+                                }
+                            }
+                        }
                     }
                 }
         }.onFailure { log("hook result handler failed: ${it.message}") }
     }
+
+    /** 反射构造默认 CloudParams（该类有公开无参构造）。 */
+    private fun newCloudParams(): Any? = runCatching {
+        findClass(CLOUD_PARAMS).getDeclaredConstructor().newInstance()
+    }.getOrNull()
 
     /** 把对象里有意义的字段读出来（只读叶子字段，不整个序列化） */
     private fun describe(obj: Any?): String {
@@ -132,4 +155,16 @@ object DisableCloudCheckFix : BaseHook() {
     }
 
     private const val PREPARE_ACTIVITY = "com.miui.packageInstaller.NewInstallerPrepareActivity"
+    private const val CLOUD_PARAMS = "com.miui.packageInstaller.model.CloudParams"
+}
+
+/**
+ * 本次联网检测是否失败（同一安装器进程内共享）。
+ *
+ * 只有失败时「继续安装」按钮才是点了没反应的，SkipInstallSingleAuth 也只在那种情况下
+ * 接管按钮；校验正常通过时保持 MIUI 原流程，风险提示不会被跳过。
+ */
+internal object CloudCheckState {
+    @Volatile
+    var failed: Boolean = false
 }
