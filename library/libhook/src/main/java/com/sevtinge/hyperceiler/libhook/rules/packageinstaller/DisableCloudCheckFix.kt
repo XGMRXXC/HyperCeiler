@@ -18,6 +18,7 @@
 */
 package com.sevtinge.hyperceiler.libhook.rules.packageinstaller
 
+import com.sevtinge.hyperceiler.common.utils.PrefsBridge
 import com.sevtinge.hyperceiler.libhook.base.BaseHook
 import com.sevtinge.hyperceiler.libhook.utils.hookapi.dexkit.DexKit
 import io.github.lingqiqi5211.ezhooktool.xposed.dsl.createHook
@@ -141,6 +142,11 @@ object DisableCloudCheckFix : BaseHook() {
      */
     private fun forceOfflineHttp() {
         runCatching {
+            // 开关：HyperCeiler → 安装包管理器 → 禁止安装器联网（默认开）
+            if (!PrefsBridge.getBoolean("miui_package_installer_block_network", true)) {
+                log("block-network switch is off, keep the installer online")
+                return
+            }
             val cls = findClassIfExists("miui.cloud.net.XHttpClient\$HttpRequest")
             if (cls == null) {
                 log("XHttpClient\$HttpRequest not found, skip offline http")
