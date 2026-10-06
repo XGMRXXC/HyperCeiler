@@ -25,6 +25,7 @@ import android.os.Bundle;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceScreen;
+import androidx.preference.PreferenceViewHolder;
 
 import com.sevtinge.hyperceiler.dashboard.DashboardFragment;
 import com.sevtinge.hyperceiler.dashboard.SubSettings;
@@ -92,19 +93,41 @@ public class RecentChangesFragment extends DashboardFragment {
             });
             category.addPreference(app);
 
-            // 下面几行：这个应用在这些版本里的更新日志
+            // 下面几行：这个应用在这些版本里的更新日志（纯展示，不可点）
             for (Object[] change : entry.getValue()) {
                 int version = (Integer) change[0];
                 String date = (String) change[1];
                 String text = (String) change[2];
 
-                Preference item = new Preference(context);
+                Preference item = new ReadOnlyPreference(context);
                 item.setTitle(text);
                 item.setSummary("r" + version + " · " + date);
                 item.setIconSpaceReserved(false);
                 item.setSelectable(false);
                 category.addPreference(item);
             }
+        }
+    }
+
+    /**
+     * 只用来展示的条目：除了不可选，连 itemView 的点击/焦点也关掉，
+     * 否则点它还是会有按压高亮。
+     */
+    private static class ReadOnlyPreference extends Preference {
+
+        ReadOnlyPreference(Context context) {
+            super(context);
+        }
+
+        @Override
+        public void onBindViewHolder(PreferenceViewHolder holder) {
+            super.onBindViewHolder(holder);
+            holder.itemView.setClickable(false);
+            holder.itemView.setLongClickable(false);
+            holder.itemView.setFocusable(false);
+            holder.itemView.setFocusableInTouchMode(false);
+            // 直接把触摸事件吞掉：否则按下时仍会出现水波纹/按压高亮
+            holder.itemView.setOnTouchListener((v, event) -> true);
         }
     }
 
