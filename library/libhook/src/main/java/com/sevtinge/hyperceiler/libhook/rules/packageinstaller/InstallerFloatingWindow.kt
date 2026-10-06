@@ -46,6 +46,34 @@ object InstallerFloatingWindow : BaseHook() {
             log("floating window switch is off")
             return
         }
+
+        // 主手段：让安装器进程以为自己在平板/折叠机上，MIUIX 的悬浮 Activity 框架
+        // （miuix.appcompat.app.floatingactivity）就会接管全部 Activity —— 包括从文件
+        // 管理器打开的第一个页面，这正是"整个安装器都是悬浮窗"的来源。
+        pretendTablet()
+
+        // 辅手段：跳转时再要求一次自由窗口（有些路径不看形态判断）。
+        hookStartActivity()
+    }
+
+    /** 把设备形态相关的静态标志设为"平板/折叠"。 */
+    private fun pretendTablet() {
+        val cls = runCatching { Class.forName("miui.os.Build") }.getOrNull()
+        if (cls == null) {
+            log("miui.os.Build not found")
+            return
+        }
+        listOf("IS_MIPAD", "IS_TABLET", "IS_PAD", "IS_FOLDABLE").forEach { name ->
+            runCatching {
+                val field = cls.getDeclaredField(name)
+                field.isAccessible = true
+                field.setBoolean(null, true)
+                log("$name -> true")
+            }
+        }
+    }
+
+    private fun hookStartActivity() {
         runCatching {
             val instrumentation = Class.forName("android.app.Instrumentation")
             val method = instrumentation.getDeclaredMethod(
@@ -69,7 +97,7 @@ object InstallerFloatingWindow : BaseHook() {
                     }
                 }
             }
-            log("installer activities will open in a floating window")
+            log("activity transitions also request freeform")
         }.onFailure { log("hook execStartActivity failed: $it") }
     }
 
