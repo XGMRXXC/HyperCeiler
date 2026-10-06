@@ -40,6 +40,7 @@ import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.DisplayMoreApkInf
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.InstallRiskDisable;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.InstallSource;
 import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.SkipInstallSingleAuth;
+import com.sevtinge.hyperceiler.libhook.rules.packageinstaller.InstallerFloatingWindow;
 
 @HookBase(targetPackage = "com.miui.packageinstaller")
 public class PackageInstaller extends BaseLoad {
@@ -85,6 +86,8 @@ public class PackageInstaller extends BaseLoad {
         // 未通过应用商店检测的应用会被要求去右上角「︙」手动授权一次；
         // 这里让安装器认为"今天已经授权过"，于是点了「确认安装」就直接装
         initHook(SkipInstallSingleAuth.INSTANCE, purify);
+        // 每次页面跳转都用悬浮窗（PAD 风格）弹出
+        initHook(InstallerFloatingWindow.INSTANCE, PrefsBridge.getBoolean("miui_package_installer_floating_window"));
 
         // 取消安装后自动退出，不再停留在「已取消安装 / 完成」页
         initHook(AutoExitOnInstallCancel.INSTANCE, purify);

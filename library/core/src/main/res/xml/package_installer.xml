@@ -47,6 +47,12 @@
             android:summary="@string/miui_package_installer_apk_info_desc"
             android:defaultValue="false" />
 
+        <SwitchPreference
+            android:key="prefs_key_miui_package_installer_floating_window"
+            android:title="@string/miui_package_installer_floating_window"
+            android:summary="@string/miui_package_installer_floating_window_desc"
+            android:defaultValue="false" />
+
         <EditTextPreference
             android:title="@string/miui_package_installer_install_source"
             android:key="prefs_key_miui_package_installer_install_source"
