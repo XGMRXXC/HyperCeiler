@@ -19,22 +19,35 @@
 package com.sevtinge.hyperceiler.hooker;
 
 import android.content.Context;
+import android.content.pm.PackageInfo;
 import android.os.Bundle;
 
 import androidx.preference.Preference;
 import androidx.preference.PreferenceScreen;
 
 import com.sevtinge.hyperceiler.dashboard.DashboardFragment;
+import com.sevtinge.hyperceiler.dashboard.SubSettings;
+import com.sevtinge.hyperceiler.utils.SettingLauncherHelper;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
- * 「最新更改」：列出最近 12 个版本（卡纳利版本号即提交数）中新增或改动的功能。
- * 列表由 {@link RecentChanges} 提供，直接在该版本发布时的构建里编译进去。
+ * 「最新更改」：列出**当前运行版本之前** 12 个版本里改动过的应用。
+ *
+ * 版本号就是构建时的提交数（卡纳利版本号 rNNNN），当前版本号从 PackageManager 读，
+ * 所以以后每个新版本运行起来，看到的都是它自己之前 12 个版本改动过的应用，不需要改代码。
+ *
+ * 列表按应用去重（顺序 = 最近改动优先），点击某个应用就跳到该应用自己的设置页
+ * （标题与目标页面都取自主页 header，走的还是搜索结果那条 SettingLauncherHelper 路径）。
  */
 public class RecentChangesFragment extends DashboardFragment {
 
     @Override
     public int getPreferenceScreenResId() {
-        // 不用 XML，列表在下面按数据生成
+        // 不用 XML，列表按数据生成
         return 0;
     }
 
@@ -50,13 +63,91 @@ public class RecentChangesFragment extends DashboardFragment {
         PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(context);
         setPreferenceScreen(screen);
 
-        for (String[] change : RecentChanges.CHANGES) {
+        for (String pkg : collectChangedPackages(context)) {
+            Object[] target = findTarget(pkg);
+            if (target == null) {
+                continue;
+            }
+
+            // 资源按名字解析：数据文件里存的是资源名，避免生成代码依赖具体 R 常量。
+            String titleName = (String) target[1];
+            String fragment = (String) target[2];
+            String pageName = (String) target[3];
+
+            int titleRes = context.getResources()
+                .getIdentifier(titleName, "string", context.getPackageName());
+            int pageRes = pageName == null || pageName.isEmpty() ? 0
+                : context.getResources().getIdentifier(pageName, "xml", context.getPackageName());
+
             Preference preference = new Preference(context);
-            preference.setTitle(change[1]);
-            preference.setSummary(change[0]);
+            if (titleRes != 0) {
+                preference.setTitle(titleRes);
+            } else {
+                preference.setTitle(pkg);
+            }
+            preference.setSummary(pkg);
             preference.setIconSpaceReserved(false);
-            preference.setSelectable(false);
+            preference.setOnPreferenceClickListener(p -> {
+                openTarget(context, fragment, pageRes);
+                return true;
+            });
             screen.addPreference(preference);
+        }
+    }
+
+    /** 取"不高于当前版本"的最近 12 个版本，收集它们改动过的包（去重、最近优先）。 */
+    private List<String> collectChangedPackages(Context context) {
+        int currentVersion = getCurrentVersionCode(context);
+        Set<String> packages = new LinkedHashSet<>();
+        int seenVersions = 0;
+
+        for (Object[] entry : RecentChanges.HISTORY) {
+            int version = (Integer) entry[0];
+            if (currentVersion > 0 && version > currentVersion) {
+                continue;
+            }
+            if (seenVersions >= RecentChanges.RECENT_VERSION_COUNT) {
+                break;
+            }
+            seenVersions++;
+            String pkg = (String) entry[1];
+            if (pkg != null) {
+                packages.add(pkg);
+            }
+        }
+        return new ArrayList<>(packages);
+    }
+
+    private Object[] findTarget(String pkg) {
+        for (Object[] target : RecentChanges.TARGETS) {
+            if (pkg.equals(target[0])) {
+                return target;
+            }
+        }
+        return null;
+    }
+
+    private void openTarget(Context context, String fragment, int pageRes) {
+        boolean hasFragment = fragment != null && !fragment.isEmpty();
+        Bundle args = new Bundle();
+        if (pageRes != 0) {
+            args.putInt(":settings:fragment_resId", pageRes);
+        }
+        SettingLauncherHelper.onStartSettingsForArguments(
+            context,
+            SubSettings.class,
+            hasFragment ? fragment : DashboardFragment.class.getName(),
+            args,
+            0);
+    }
+
+    private int getCurrentVersionCode(Context context) {
+        try {
+            PackageInfo info = context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0);
+            return (int) info.getLongVersionCode();
+        } catch (Throwable t) {
+            return 0;
         }
     }
 }
