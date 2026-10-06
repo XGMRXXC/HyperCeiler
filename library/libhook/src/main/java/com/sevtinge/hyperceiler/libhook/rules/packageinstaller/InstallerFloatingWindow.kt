@@ -52,8 +52,38 @@ object InstallerFloatingWindow : BaseHook() {
         // 管理器打开的第一个页面，这正是"整个安装器都是悬浮窗"的来源。
         pretendTablet()
 
-        // 辅手段：跳转时再要求一次自由窗口（有些路径不看形态判断）。
+        // 决定性手段：对比 PAD 版（5.5.4.0.2P）与手机版的 manifest 发现，
+        // PAD 上安装器 Activity 用的是 `Theme.DayNight.FloatingWindow.NoTitle`，
+        // 手机版用的是 `Theme.DayNight.NoTitle` —— 而 MIUIX 正是靠主题里的
+        // `isMiuixFloatingTheme` 属性决定要不要把 Activity 做成悬浮窗。
+        // 手机版资源里同样带 `Theme.DayNight.FloatingWindow`，所以这里直接给安装器的
+        // 每个 Activity 在 onCreate 之前套上悬浮主题。
+        applyFloatingTheme()
+
+        // 辅手段：跳转时再要求一次自由窗口（有些路径不看主题）。
         hookStartActivity()
+    }
+
+    /** 在每个 Activity 的 onCreate 之前套用悬浮窗主题。 */
+    private fun applyFloatingTheme() {
+        runCatching {
+            android.app.Activity::class.java
+                .getDeclaredMethod("onCreate", Bundle::class.java)
+                .createHook {
+                    before { param ->
+                        runCatching {
+                            val activity = param.thisObject as? android.app.Activity ?: return@before
+                            val res = activity.resources
+                            val id = FLOATING_THEMES.firstNotNullOfOrNull { name ->
+                                res.getIdentifier(name, "style", activity.packageName).takeIf { it != 0 }
+                            } ?: return@before
+                            activity.setTheme(id)
+                            log("applied floating theme to ${activity.javaClass.simpleName}")
+                        }
+                    }
+                }
+            log("floating theme hook installed")
+        }.onFailure { log("applyFloatingTheme failed: $it") }
     }
 
     /** 把设备形态相关的静态标志设为"平板/折叠"。 */
@@ -122,4 +152,11 @@ object InstallerFloatingWindow : BaseHook() {
     private fun log(message: String) {
         android.util.Log.w("InstallerFloatWin", message)
     }
+
+    /** PAD 版用的就是第一个；后两个作为不同 MIUI 版本的兜底。 */
+    private val FLOATING_THEMES = listOf(
+        "Theme.DayNight.FloatingWindow.NoTitle",
+        "Theme.DayNight.FloatingWindow",
+        "Theme.Light.FloatingWindow",
+    )
 }
