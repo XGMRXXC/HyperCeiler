@@ -18,6 +18,9 @@
   ~ Copyright (C) 2023-2026 HyperCeiler Contributions
   --><resources>
     <!--Xposed 模块简介-->
+    <string name="recent_changes_expand">点击展开 %d 项更新</string>
+    <string name="recent_changes_collapse">点击收起 %d 项更新</string>
+    <string name="recent_changes_open_settings">打开应用设置</string>
     <string name="recent_changes">最新更改</string>
     <string name="new_permission_wifi_state_desc">用于xxx</string>
     <string name="new_permission_location_desc">用于提供经纬度等服务</string>

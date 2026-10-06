@@ -27,6 +27,7 @@ import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceScreen;
 import androidx.preference.PreferenceViewHolder;
 
+import com.sevtinge.hyperceiler.core.R;
 import com.sevtinge.hyperceiler.dashboard.DashboardFragment;
 import com.sevtinge.hyperceiler.dashboard.SubSettings;
 import com.sevtinge.hyperceiler.utils.SettingLauncherHelper;
@@ -72,29 +73,38 @@ public class RecentChangesFragment extends DashboardFragment {
             if (target == null) {
                 continue;
             }
+            List<Object[]> changes = entry.getValue();
 
-            PreferenceCategory category = new PreferenceCategory(context);
-            category.setIconSpaceReserved(false);
-            screen.addPreference(category);
-
-            // 第一行：应用本身，点了跳到它的设置页
             String fragment = (String) target[2];
             String pageName = (String) target[3];
             int pageRes = pageName == null || pageName.isEmpty() ? 0
                 : context.getResources().getIdentifier(pageName, "xml", context.getPackageName());
 
+            PreferenceCategory category = new PreferenceCategory(context);
+            category.setIconSpaceReserved(false);
+            screen.addPreference(category);
+
+            // 第一行：应用本身。点它展开/收起这个应用的更新日志。
             Preference app = new Preference(context);
             app.setTitle(resolveString(context, (String) target[1], pkg));
-            app.setSummary(pkg);
             app.setIconSpaceReserved(false);
-            app.setOnPreferenceClickListener(p -> {
+            category.addPreference(app);
+
+            // 展开后才显示的几行：更新日志（纯展示） + 打开该应用设置
+            List<Preference> details = new ArrayList<>();
+
+            Preference open = new Preference(context);
+            open.setTitle(getString(R.string.recent_changes_open_settings));
+            open.setSummary(pkg);
+            open.setIconSpaceReserved(false);
+            open.setOnPreferenceClickListener(p -> {
                 openTarget(context, fragment, pageRes);
                 return true;
             });
-            category.addPreference(app);
+            category.addPreference(open);
+            details.add(open);
 
-            // 下面几行：这个应用在这些版本里的更新日志（纯展示，不可点）
-            for (Object[] change : entry.getValue()) {
+            for (Object[] change : changes) {
                 int version = (Integer) change[0];
                 String date = (String) change[1];
                 String text = (String) change[2];
@@ -105,7 +115,26 @@ public class RecentChangesFragment extends DashboardFragment {
                 item.setIconSpaceReserved(false);
                 item.setSelectable(false);
                 category.addPreference(item);
+                details.add(item);
             }
+
+            final boolean[] expanded = {false};
+            Runnable refreshSummary = () -> app.setSummary(expanded[0]
+                ? getString(R.string.recent_changes_collapse, changes.size())
+                : getString(R.string.recent_changes_expand, changes.size()));
+            for (Preference detail : details) {
+                detail.setVisible(false);
+            }
+            refreshSummary.run();
+
+            app.setOnPreferenceClickListener(p -> {
+                expanded[0] = !expanded[0];
+                for (Preference detail : details) {
+                    detail.setVisible(expanded[0]);
+                }
+                refreshSummary.run();
+                return true;
+            });
         }
     }
 

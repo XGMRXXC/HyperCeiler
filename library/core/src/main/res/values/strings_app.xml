@@ -53,6 +53,9 @@
     <string name="security_center" translatable="false">Security Center</string>
     <!--Introduction to Xposed Modules-->
     <string name="description_hyperos" translatable="false">Make HyperOS Great Again!</string>
+    <string name="recent_changes_expand">Tap to show %d changes</string>
+    <string name="recent_changes_collapse">Tap to hide %d changes</string>
+    <string name="recent_changes_open_settings">Open app settings</string>
     <string name="recent_changes">Latest changes</string>
     <string name="new_permission_wifi_state_desc">Add and delete files on device\'s internal storage</string>
     <string name="new_permission_location_desc">Used to provide services such as latitude and longitude</string>
