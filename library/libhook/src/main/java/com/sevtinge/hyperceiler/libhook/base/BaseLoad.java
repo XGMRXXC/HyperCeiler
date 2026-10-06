@@ -198,6 +198,25 @@ public abstract class BaseLoad {
     private void loadModuleResources() {
         try {
             String pkgName = getPackageName();
+
+            // system_server 不注入模块资源。
+            //
+            // 实测（tombstone_01/02，2026-10-02 与 2026-10-06 两次 system_server 段错误）：
+            // 覆盖安装本模块后，system_server 会在解析资源 bag/style 时崩溃，
+            //   #00 AssetManager2::FindEntryInternal   #02 AssetManager2::GetBag
+            //   #05 ApplyStyle                          #15 ActivityRecord.<init>
+            // 故障地址是"被当成指针的字符串字节"（0x7070612e6e617af1），而崩溃进程的映射里
+            // 正是本模块自己的 base.apk（2.9 MB 的 resources.arsc 段被 mmap 了 3 份）。
+            // 结论：模块 APK 被原地替换后，注入进 system_server 的那套资源包状态失效，
+            // 下一次解析 bag 就会踩到过期偏移。system_server 从不重启，这个状态无法自愈，
+            // 所以唯一稳妥的修法就是根本不要在它里面注入。
+            //
+            // 目前 system_server 里只有 ScreenRotation 用过资源替换，而那一行是冗余的
+            // （同一开关已经用两个 hook 强制了策略与内部字段），已一并去掉。
+            if (isSystemServer() || SYSTEM_SERVER.equals(pkgName)) {
+                return;
+            }
+
             if (!Objects.equals(ProjectApi.mAppModulePkg, pkgName)) {
                 // 热重载已携带 application context 时直接重挂新 APK 的 loader，避免等后台轮询；
                 // 这对 SystemUI 这类长生命周期进程尤为重要。

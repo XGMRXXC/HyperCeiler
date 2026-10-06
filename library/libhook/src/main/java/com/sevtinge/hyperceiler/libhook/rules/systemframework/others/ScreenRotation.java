@@ -39,6 +39,12 @@ public class ScreenRotation extends BaseHook {
             }
         });
 
-        setObjectReplacement("android", "bool", "config_allowAllRotations", PrefsBridge.getBoolean("system_framework_screen_all_rotations"));
+        // 这里原本还有一句资源替换：
+        //   setObjectReplacement("android", "bool", "config_allowAllRotations", ...)
+        // 它是冗余的 —— 上面两个 hook 已经把策略查询（areAllRotationsAllowed）和
+        // DisplayRotation 的内部字段都按同一个开关强制了。去掉它之后，
+        // system_server 里就再没有任何地方需要模块资源，于是 BaseLoad 可以彻底不在
+        // system_server 注入 EzResources（见 BaseLoad#loadModuleResources 的说明：
+        // 覆盖安装模块后正是那套注入状态失效，导致 system_server 解析资源时段错误）。
     }
 }
