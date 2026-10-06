@@ -90,7 +90,7 @@ object DisableCloudCheckFix : BaseHook() {
         log("cloud check forced offline: ${method.declaringClass.simpleName}#${method.name}")
     }
 
-    /** 结果处理方（c2/CloudParams）：结果为空时补一个默认 CloudParams，让流程继续 */
+    /** 结果处理方（c2/CloudParams）：只观察，不修改任何状态 */
     private fun hookResultHandler() {
         runCatching {
             val clazz = findClassIfExists(PREPARE_ACTIVITY) ?: return
@@ -104,41 +104,18 @@ object DisableCloudCheckFix : BaseHook() {
                         before { param ->
                             val arg = param.args?.getOrNull(0)
                             log("${m.name}(CloudParams) -> ${if (arg == null) "null" else arg.javaClass.simpleName}")
-                            // 云校验被跳过后这里必定是 null。反编译 NewInstallerPrepareActivity$t
-                            // 可以看到：CloudParams 为 null 就直接 return（页面永远停在原地，
-                            // 也就是"点继续安装没反应"）；非 null 时才会继续往下走。
-                            // 那个 lambda 对这个参数只判空、不读字段（后续数据都取自 activity
-                            // 自己），所以塞一个默认构造的 CloudParams 就足以让流程按
-                            // "校验已通过"继续，安装全程仍是离线的。
-                            if (arg == null) {
-                                // 没拿到云端数据（离线时必然如此）→ 标记后由 SkipInstallSingleAuth
-                                // 接管「继续安装」按钮，直接执行"单次安装授权"那一项。
-                                CloudCheckState.failed = true
-                                val fake = newCloudParams()
-                                if (fake != null) {
-                                    param.args[0] = fake
-                                    log("cloud result filled with default CloudParams (offline)")
-                                } else {
-                                    log("CloudParams unavailable, leaving null")
-                                }
-                            }
                         }
                     }
                 }
         }.onFailure { log("hook result handler failed: ${it.message}") }
     }
 
-    /** 反射构造默认 CloudParams（该类有公开无参构造）。 */
-    private fun newCloudParams(): Any? = runCatching {
-        findClass(CLOUD_PARAMS).getDeclaredConstructor().newInstance()
-    }.getOrNull()
-
     /**
-     * 让安装器发出的 MIUI 云端请求全部瞬间超时 —— 等效于"没有网络"，但不必等系统超时。
+     * 禁止安装器联网：所有 MIUI 云端请求在发起时直接失败。
      *
-     * `miui.cloud.net.XHttpClient$HttpRequest.prepareConn(URLConnection)` 是所有云端请求
-     * 配置连接的唯一入口，把 connect/read 超时压到 1ms 后，云端校验、扫描里的联网步骤
-     * 都会立刻走失败分支，页面按离线流程继续（实测无网络时该流程能正常安装且很快）。
+     * `miui.cloud.net.XHttpClient$HttpRequest.doHttpRequest()` 是每个请求真正发出去的地方，
+     * 在这里抛一个和"网络超时"同类型的异常，客户端自己的错误分支照常走 —— 等价于设备没有网络，
+     * 但不用等系统超时。不伪造任何状态：请求就是失败。
      */
     private fun forceOfflineHttp() {
         runCatching {
@@ -149,20 +126,17 @@ object DisableCloudCheckFix : BaseHook() {
             }
             val cls = findClassIfExists("miui.cloud.net.XHttpClient\$HttpRequest")
             if (cls == null) {
-                log("XHttpClient\$HttpRequest not found, skip offline http")
+                log("XHttpClient\$HttpRequest not found, cannot block network")
                 return
             }
-            cls.getDeclaredMethod("prepareConn", java.net.URLConnection::class.java).createHook {
-                after { param ->
-                    runCatching {
-                        val conn = param.args?.getOrNull(0) as? java.net.HttpURLConnection
-                            ?: return@after
-                        conn.connectTimeout = 1
-                        conn.readTimeout = 1
-                    }
+            cls.getDeclaredMethod("doHttpRequest").createHook {
+                before {
+                    throw java.net.SocketTimeoutException("blocked by HyperCeiler (network disabled)")
                 }
             }
-            log("MIUI cloud requests forced offline (1ms timeouts)")
+            // 网络被禁 → 云端校验必然拿不到结果，继续安装按钮需要接管。
+            CloudCheckState.failed = true
+            log("installer network blocked (all cloud requests refused)")
         }.onFailure { log("forceOfflineHttp failed: ${it.message}") }
     }
 

@@ -72,7 +72,6 @@ object SkipInstallSingleAuth : BaseHook() {
         onceDateGetter
         onceDateSetter
         singleAuthAction
-        safeModeRefresh
         return true
     }
 
@@ -124,66 +123,6 @@ object SkipInstallSingleAuth : BaseHook() {
         }.onFailure { android.util.Log.w(TAG, "hook constructors failed: $it") }
 
         hookContinueButton()
-        pretendEnhancedProtectionOff()
-    }
-
-    /**
-     * 让安装器以为没有开启"增强防护"。
-     *
-     * 增强防护（安全守护的默认档）下，安装页不会给「继续安装」，而是换成
-     * "查找类似应用" + 一句"请前往右上角 ⋮ > 单次安装授权" —— 每次装都要手动授权一次。
-     *
-     * 反编译 5.5.6：`y2.M.v(Context)` 在 `InstallerApplication.onCreate` 里被调用一次，
-     * 它 query `content://com.xiaomi.market.dbcache/safe_mode_settings` 的
-     * `enable_advanced_mode` / `should_show_beta_info` 两列，然后分别写进静态字段
-     * `y2.M.c` / `y2.M.d`。安装器之后就读这些静态字段。
-     *
-     * 所以只要让这次刷新不执行（字段保持默认的 false），安装器就按"未开启增强防护"
-     * 的普通流程走 —— 与用户手动关闭增强防护时的效果一致，也就不再需要单次授权。
-     */
-    private fun pretendEnhancedProtectionOff() {
-        runCatching {
-            val cls = safeModeRefresh.declaringClass
-            // 刷新之后把该类所有 static boolean 压成 false：其中就有
-            // enable_advanced_mode 对应的那一个（实测默认值是 true，光跳过刷新不够）。
-            // 多压一个 beta 提示标志无害。
-            val flags = cls.declaredFields.filter {
-                it.type == Boolean::class.javaPrimitiveType &&
-                    java.lang.reflect.Modifier.isStatic(it.modifiers)
-            }
-            android.util.Log.w(
-                TAG,
-                "hiding enhanced protection: ${cls.simpleName} flags=${flags.map { it.name }}"
-            )
-            safeModeRefresh.createHook {
-                after {
-                    runCatching {
-                        flags.forEach { f ->
-                            runCatching { f.isAccessible = true; f.setBoolean(null, false) }
-                        }
-                        android.util.Log.w(TAG, "enhanced protection forced off")
-                    }.onFailure { android.util.Log.w(TAG, "force off failed: $it") }
-                }
-            }
-            // 万一刷新早就跑过了，也立刻压一次。
-            flags.forEach { f -> runCatching { f.isAccessible = true; f.setBoolean(null, false) } }
-        }.onFailure { android.util.Log.w(TAG, "hide enhanced protection failed: $it") }
-    }
-
-    /**
-     * 读"增强防护"开关的那个刷新方法（按 `enable_advanced_mode` 这个列名定位，
-     * 与混淆后的类名/方法名无关）。
-     */
-    private val safeModeRefresh by lazy {
-        requiredMember("SkipInstallSingleAuth4") {
-            it.findMethod {
-                matcher {
-                    addUsingString("enable_advanced_mode", StringMatchType.Equals)
-                    paramCount = 1
-                    returnType = "void"
-                }
-            }.single()
-        } as Method
     }
 
     /**
@@ -238,25 +177,10 @@ object SkipInstallSingleAuth : BaseHook() {
         runCatching {
             val decor = act.window?.decorView as? ViewGroup ?: return
 
-            // 增强防护（安全守护的默认档）会把"继续安装"换成"查找类似应用"，
-            // 唯一出路是手动去"⋮ → 单次安装授权"。这里一看到这个界面就直接替用户做掉，
-            // 效果与未开启增强防护时一致。
-            val enhanced = findLabelView(decor, ENHANCED_LABELS, 0)
-            if (enhanced != null) {
-                if (!mEnhancedHandled) {
-                    mEnhancedHandled = true
-                    android.util.Log.w(TAG, "enhanced guard detected ('${(enhanced as? TextView)?.text}') -> auto single-authorize")
-                    if (!triggerSingleAuthorize(act)) {
-                        android.util.Log.w(TAG, "auto single-authorize failed")
-                    }
-                }
-                return
-            }
-
             val label = findLabelView(decor, CONTINUE_LABELS, 0)
             if (label == null) {
-                // 页面内容是异步填进 fragment_container 的（增强防护那张卡片更晚），
-                // 所以每 200ms 重试一次，最多约 15 秒。
+                // 页面内容是异步填进 fragment_container 的，所以每 200ms 重试一次，
+                // 最多约 15 秒。
                 if (attempt < 75) {
                     decor.postDelayed({ attachContinueShortcut(act, attempt + 1) }, 200)
                 } else {
@@ -403,7 +327,6 @@ object SkipInstallSingleAuth : BaseHook() {
 
     private var mMenu: Menu? = null
     private var mHookedButton: View? = null
-    private var mEnhancedHandled: Boolean = false
 
     private const val TAG = "HCSingleAuth"
     private const val PREPARE_ACTIVITY = "com.miui.packageInstaller.NewInstallerPrepareActivity"
@@ -413,10 +336,6 @@ object SkipInstallSingleAuth : BaseHook() {
     private const val AUTHORIZE_ITEM_NAME = "Y3"
 
     private val CONTINUE_LABELS = setOf("继续安装", "繼續安裝", "继续", "仍要安装", "Continue")
-
-    /** 增强防护下替代"继续安装"的那个按钮。 */
-    private val ENHANCED_LABELS =
-        setOf("查找类似应用", "查找相似应用", "搜尋類似應用", "Find similar apps")
 
     private val AUTHORIZE_LABELS =
         setOf("单次安装授权", "單次安裝授權", "Single-use authorization", "Single install authorization")
