@@ -23,6 +23,7 @@ import android.content.pm.PackageInfo;
 import android.os.Bundle;
 
 import androidx.preference.Preference;
+import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceScreen;
 
 import com.sevtinge.hyperceiler.dashboard.DashboardFragment;
@@ -30,18 +31,19 @@ import com.sevtinge.hyperceiler.dashboard.SubSettings;
 import com.sevtinge.hyperceiler.utils.SettingLauncherHelper;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
- * 「最新更改」：列出**当前运行版本之前** 12 个版本里改动过的应用。
+ * 「最新更改」：列出**当前运行版本之前** 12 个版本里改动过的应用，并在每个应用下面
+ * 列出它自己的更新日志。
  *
  * 版本号就是构建时的提交数（卡纳利版本号 rNNNN），当前版本号从 PackageManager 读，
- * 所以以后每个新版本运行起来，看到的都是它自己之前 12 个版本改动过的应用，不需要改代码。
+ * 所以以后每个新版本运行起来，看到的都是它自己之前 12 个版本的改动，不需要改代码。
  *
- * 列表按应用去重（顺序 = 最近改动优先），点击某个应用就跳到该应用自己的设置页
- * （标题与目标页面都取自主页 header，走的还是搜索结果那条 SettingLauncherHelper 路径）。
+ * 每个应用一张卡片：第一行是应用本身，点击跳到该应用的设置页（标题与目标页面取自主页
+ * header，走的还是搜索结果那条 SettingLauncherHelper 路径）；下面几行是它在这些版本里的更新日志。
  */
 public class RecentChangesFragment extends DashboardFragment {
 
@@ -63,46 +65,57 @@ public class RecentChangesFragment extends DashboardFragment {
         PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(context);
         setPreferenceScreen(screen);
 
-        for (String pkg : collectChangedPackages(context)) {
+        for (Map.Entry<String, List<Object[]>> entry : collectChanges(context).entrySet()) {
+            String pkg = entry.getKey();
             Object[] target = findTarget(pkg);
             if (target == null) {
                 continue;
             }
 
-            // 资源按名字解析：数据文件里存的是资源名，避免生成代码依赖具体 R 常量。
-            String titleName = (String) target[1];
+            PreferenceCategory category = new PreferenceCategory(context);
+            category.setIconSpaceReserved(false);
+            screen.addPreference(category);
+
+            // 第一行：应用本身，点了跳到它的设置页
             String fragment = (String) target[2];
             String pageName = (String) target[3];
-
-            int titleRes = context.getResources()
-                .getIdentifier(titleName, "string", context.getPackageName());
             int pageRes = pageName == null || pageName.isEmpty() ? 0
                 : context.getResources().getIdentifier(pageName, "xml", context.getPackageName());
 
-            Preference preference = new Preference(context);
-            if (titleRes != 0) {
-                preference.setTitle(titleRes);
-            } else {
-                preference.setTitle(pkg);
-            }
-            preference.setSummary(pkg);
-            preference.setIconSpaceReserved(false);
-            preference.setOnPreferenceClickListener(p -> {
+            Preference app = new Preference(context);
+            app.setTitle(resolveString(context, (String) target[1], pkg));
+            app.setSummary(pkg);
+            app.setIconSpaceReserved(false);
+            app.setOnPreferenceClickListener(p -> {
                 openTarget(context, fragment, pageRes);
                 return true;
             });
-            screen.addPreference(preference);
+            category.addPreference(app);
+
+            // 下面几行：这个应用在这些版本里的更新日志
+            for (Object[] change : entry.getValue()) {
+                int version = (Integer) change[0];
+                String date = (String) change[1];
+                String text = (String) change[2];
+
+                Preference item = new Preference(context);
+                item.setTitle(text);
+                item.setSummary("r" + version + " · " + date);
+                item.setIconSpaceReserved(false);
+                item.setSelectable(false);
+                category.addPreference(item);
+            }
         }
     }
 
-    /** 取"不高于当前版本"的最近 12 个版本，收集它们改动过的包（去重、最近优先）。 */
-    private List<String> collectChangedPackages(Context context) {
+    /** 取"不高于当前版本"的最近 12 个版本，按包名分组（最近改动优先）。 */
+    private Map<String, List<Object[]>> collectChanges(Context context) {
         int currentVersion = getCurrentVersionCode(context);
-        Set<String> packages = new LinkedHashSet<>();
+        Map<String, List<Object[]>> grouped = new LinkedHashMap<>();
         int seenVersions = 0;
 
-        for (Object[] entry : RecentChanges.HISTORY) {
-            int version = (Integer) entry[0];
+        for (Object[] record : RecentChanges.HISTORY) {
+            int version = (Integer) record[0];
             if (currentVersion > 0 && version > currentVersion) {
                 continue;
             }
@@ -110,12 +123,20 @@ public class RecentChangesFragment extends DashboardFragment {
                 break;
             }
             seenVersions++;
-            String pkg = (String) entry[1];
-            if (pkg != null) {
-                packages.add(pkg);
+
+            String pkg = (String) record[1];
+            if (pkg == null) {
+                continue;
             }
+            List<Object[]> list = grouped.get(pkg);
+            if (list == null) {
+                list = new ArrayList<>();
+                grouped.put(pkg, list);
+            }
+            // {版本号, 日期, 说明}
+            list.add(new Object[]{version, record[2], record[3]});
         }
-        return new ArrayList<>(packages);
+        return grouped;
     }
 
     private Object[] findTarget(String pkg) {
@@ -125,6 +146,11 @@ public class RecentChangesFragment extends DashboardFragment {
             }
         }
         return null;
+    }
+
+    private CharSequence resolveString(Context context, String name, String fallback) {
+        int res = context.getResources().getIdentifier(name, "string", context.getPackageName());
+        return res != 0 ? context.getText(res) : fallback;
     }
 
     private void openTarget(Context context, String fragment, int pageRes) {
