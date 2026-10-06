@@ -103,6 +103,9 @@ public class SwitchManager {
 
         if (mSwitchView != null) {
             mSwitchView.updateStyle(style);
+            // 保险：样式切换之后可见性必须和样式保持一致，否则两套底栏会同时可见。
+            // （updateStyle 本身只改布局参数，不会动可见性，这里显式压一次更稳。）
+            mSwitchView.setVisibility(liquid ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -205,13 +208,24 @@ public class SwitchManager {
     }
 
     public void show() {
-        if (mSwitchView != null) mSwitchView.setVisibility(View.VISIBLE);
-        // 液态玻璃底栏也要一起显示：它和 View 版是两套视图，
-        // 只处理 mSwitchView 的话，玻璃底栏在搜索展开期间会一直留着并持续采样
-        // 搜索界面，退出搜索后玻璃里就是那层内容 —— 也就是重影。
+        // 只显示当前样式对应的那一套底栏。
+        //
+        // View 版（mSwitchView）与液态玻璃版（mGlassBar）是互斥的两套视图，
+        // 之前这里无条件把两个都设为 VISIBLE：退出搜索的调用顺序是
+        // 「先 recreateGlassBar()（内部 setStyle 会把 View 版藏掉）再 show()」，
+        // 于是 show() 又把 View 版显示回来，两个底栏在同一个位置叠在一起 —— 看起来
+        // 就是底栏突然变高变大、选中态错位（用户描述为"两种底栏打架"）。
+        boolean liquid = mCurrentStyle == NavigationStyle.LIQUID_GLASS;
+        if (mSwitchView != null) {
+            mSwitchView.setVisibility(liquid ? View.GONE : View.VISIBLE);
+        }
         if (mGlassBar != null) {
-            mGlassBar.setVisibility(View.VISIBLE);
-            mGlassBar.setBackdropSource(mBackdropView);
+            if (liquid) {
+                mGlassBar.setVisibility(View.VISIBLE);
+                mGlassBar.setBackdropSource(mBackdropView);
+            } else {
+                mGlassBar.setVisibility(View.GONE);
+            }
         }
     }
 

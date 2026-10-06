@@ -24,6 +24,8 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -44,6 +46,7 @@ import com.sevtinge.hyperceiler.search.SearchHelper;
 import com.sevtinge.hyperceiler.search.SearchResultAdapter;
 import com.sevtinge.hyperceiler.search.data.ModEntity;
 import com.sevtinge.hyperceiler.search.widget.FlowLayout;
+import com.sevtinge.hyperceiler.ui.HomePageActivity;
 import com.sevtinge.hyperceiler.utils.DialogHelper;
 import com.sevtinge.hyperceiler.utils.ThreadUtils;
 
@@ -60,6 +63,7 @@ import fan.recyclerview.widget.RecyclerView;
 import fan.theme.token.ContainerToken;
 import fan.view.ActionModeAnimationListener;
 import fan.view.SearchActionMode;
+import fan.viewpager.widget.ViewPager;
 
 public class HomePageFragment extends BasePreferenceFragment implements OnCompleteCallBack {
 
@@ -196,13 +200,15 @@ public class HomePageFragment extends BasePreferenceFragment implements OnComple
 
         @Override
         public void onDestroyActionMode(ActionMode mode) {
-            // 退出搜索页时把底栏**重新加载一遍**。
-            // 搜索期间底栏被隐藏（见 onActionModeStarted 的 hide()），退出后只把它显示回来
-            // 不够：液态玻璃底栏的采样纹理还停在搜索前那一刻，直接显示就是重影。
-            // 重建一次等于按当前布局重新初始化（采样源、尺寸、选中态全部重走）。
-            android.util.Log.w("GlassReload", "onDestroyActionMode -> recreateGlassBar");
-            getSwitchManager().recreateGlassBar();
-            getSwitchManager().show();
+            // 退出搜索页时必须重建底栏：液态玻璃的采样纹理、尺寸都还停在搜索界面，
+            // 只把它显示回来就是重影。但**不能在这里立刻重建**：
+            //   1) 此刻列表还没恢复可见、键盘也还在收起，容器几何仍是搜索态的，
+            //      重建出来的底栏会按那个几何固定下来（表现就是底栏整体偏移、变高）；
+            //   2) 搜索期间的布局抖动会让 SwitchMediator 把选中项改到别的页，
+            //      立刻重建就会用这个错的选中项，把玻璃的折射镜片画到中间那颗图标上
+            //      （实测就是这样：镜片从"主页"跑到了"齿轮"）。
+            // 所以这里只恢复页面状态，等布局落定后再对齐选中项并重建，
+            // 见 rebuildGlassBarWhenSettled()。
             mIsInActionMode = false;
             if (mSearchInput != null) {
                 mSearchInput.removeTextChangedListener(mTextWatcher);
@@ -225,6 +231,54 @@ public class HomePageFragment extends BasePreferenceFragment implements OnComple
             if (mSearchHandler != null) {
                 mSearchHandler.removeMessages(1);
             }
+            // 页面状态已经恢复，交给下一帧去重建底栏。
+            rebuildGlassBarWhenSettled(0);
+        }
+
+        /**
+         * 退出搜索后，等布局真正落定再重建底栏。
+         *
+         * 逐帧轮询而不是直接 post 一次：键盘收起是带动画的，只有等 IME 真正不可见，
+         * 容器高度才回到常态，此时重建出来的底栏尺寸才是对的。超过 20 帧就不再等，
+         * 避免某些机型 insets 一直报"键盘可见"时底栏永远不回来。
+         */
+        private void rebuildGlassBarWhenSettled(int attempt) {
+            View anchor = mListView != null ? mListView : mAnchorView;
+            if (anchor == null) {
+                finishGlassBarRebuild();
+                return;
+            }
+            anchor.post(() -> {
+                if (isImeVisible(anchor) && attempt < 20) {
+                    rebuildGlassBarWhenSettled(attempt + 1);
+                    return;
+                }
+                finishGlassBarRebuild();
+            });
+        }
+
+        private boolean isImeVisible(View view) {
+            try {
+                WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(view);
+                return insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        private void finishGlassBarRebuild() {
+            // 选中项按 ViewPager 的真实页重新对齐，再重建 —— 顺序不能反，
+            // 重建时会把当前选中态直接画进玻璃里。
+            if (getActivity() instanceof HomePageActivity) {
+                ViewPager pager = ((HomePageActivity) getActivity()).mViewPager;
+                if (pager != null) {
+                    getSwitchManager().setSelectedPosition(pager.getCurrentItem(), false);
+                }
+            }
+            android.util.Log.w("GlassReload", "finishGlassBarRebuild -> recreateGlassBar");
+
+            getSwitchManager().recreateGlassBar();
+            getSwitchManager().show();
         }
 
         @Override
