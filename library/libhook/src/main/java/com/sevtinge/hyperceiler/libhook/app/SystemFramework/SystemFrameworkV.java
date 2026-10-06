@@ -79,6 +79,7 @@ import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.NoAccessDev
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.PstedClipboard;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.QuickScreenshot;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.ScreenRotation;
+import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.InstallerFreeform;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.SpeedInstall;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.SystemLockApp;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.ThermalBrightness;
@@ -138,6 +139,8 @@ public class SystemFrameworkV extends BaseLoad {
         initHook(new AntiQues(), PrefsBridge.getBoolean("system_settings_anti_ques"));
         initHook(new SystemLockApp(), PrefsBridge.getBoolean("system_framework_guided_access"));
         initHook(new ScreenRotation(), PrefsBridge.getBoolean("system_framework_screen_all_rotations"));
+        // 安装器以悬浮窗（freeform）打开：让系统认为它的 Activity 可缩放
+        initHook(InstallerFreeform.INSTANCE, true);
         initHook(new CleanShareMenu(), PrefsBridge.getBoolean("system_framework_clean_share_menu"));
         initHook(new CleanOpenMenu(), PrefsBridge.getBoolean("system_framework_clean_open_menu"));
         initHook(new CleanProcessTextMenu(), PrefsBridge.getBoolean("system_framework_clean_process_text_menu"));

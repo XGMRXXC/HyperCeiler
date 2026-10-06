@@ -52,6 +52,7 @@ import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.AllowManage
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.AllowUntrustedTouchForU;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.AntiQues;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.AppLinkVerify;
+import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.InstallerFreeform;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.AutoEffectSwitchForSystem;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.BypassForceDownloadui;
 import com.sevtinge.hyperceiler.libhook.rules.systemframework.others.BypassForceMiAppStore;
@@ -109,6 +110,8 @@ public class SystemFrameworkB extends BaseLoad {
         // 手势初始化
         initHook(new ModulePackageTrust(), PrefsBridge.getBoolean("home_gesture_enable"));
         initHook(new GlobalActionBootstrap(), PrefsBridge.getBoolean("home_gesture_enable"));
+        // 安装器以悬浮窗（freeform）打开：让系统认为它的 Activity 可缩放
+        initHook(InstallerFreeform.INSTANCE, true);
 
         // 修复 A16 移植包开启核心破解后掉指纹，仅作备选项
         initHook(DisableRemoveFingerprintSensorConfig.INSTANCE, PrefsBridge.getBoolean("system_framework_core_patch_unloss_fingerprint"));
