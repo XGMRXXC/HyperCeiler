@@ -47,10 +47,12 @@
             android:summary="@string/miui_package_installer_apk_info_desc"
             android:defaultValue="false" />
 
+        <!-- 功能未完成（目前只有悬浮窗样式，还不是真正的自由窗口），先置灰停用 -->
         <SwitchPreference
             android:key="prefs_key_miui_package_installer_floating_window"
             android:title="@string/miui_package_installer_floating_window"
             android:summary="@string/miui_package_installer_floating_window_desc"
+            android:enabled="false"
             android:defaultValue="false" />
 
         <EditTextPreference

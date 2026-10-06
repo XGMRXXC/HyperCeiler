@@ -39,6 +39,11 @@ import io.github.lingqiqi5211.ezhooktool.xposed.dsl.createHook
 object InstallerFreeform : BaseHook() {
 
     override fun init() {
+        // 与 InstallerFloatingWindow 一致：功能未完成，先停用。
+        if (!FEATURE_READY) {
+            log("feature disabled (not ready)")
+            return
+        }
         if (!PrefsBridge.getBoolean("miui_package_installer_floating_window", false)) return
 
         runCatching {
@@ -67,4 +72,7 @@ object InstallerFreeform : BaseHook() {
     }
 
     private const val INSTALLER_PKG = "com.miui.packageinstaller"
+
+    /** 与 InstallerFloatingWindow 共用的功能总开关。 */
+    private const val FEATURE_READY = false
 }

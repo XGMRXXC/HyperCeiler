@@ -42,6 +42,12 @@ import io.github.lingqiqi5211.ezhooktool.xposed.dsl.createHook
 object InstallerFloatingWindow : BaseHook() {
 
     override fun init() {
+        // 功能尚未完成（目前只做到"悬浮窗样式"，还不是真正的自由窗口 freeform），
+        // 所以这里用 FEATURE_READY 总开关把它停用；设置页里那个开关也已 disabled。
+        if (!FEATURE_READY) {
+            log("feature disabled (not ready)")
+            return
+        }
         if (!PrefsBridge.getBoolean("miui_package_installer_floating_window", false)) {
             log("floating window switch is off")
             return
@@ -159,4 +165,10 @@ object InstallerFloatingWindow : BaseHook() {
         "Theme.DayNight.FloatingWindow",
         "Theme.Light.FloatingWindow",
     )
+
+    /**
+     * 功能总开关。等"真正的自由窗口（freeform）"接通后再改成 true ——
+     * 目前只实现了悬浮窗样式，窗口本身仍是全屏，所以先停用。
+     */
+    private const val FEATURE_READY = false
 }
