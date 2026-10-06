@@ -111,11 +111,12 @@ object DisableCloudCheckFix : BaseHook() {
     }
 
     /**
-     * 禁止安装器联网：所有 MIUI 云端请求在发起时直接失败。
+     * 禁止安装器联网：直接把整个进程的 socket 建连掐掉。
      *
-     * `miui.cloud.net.XHttpClient$HttpRequest.doHttpRequest()` 是每个请求真正发出去的地方，
-     * 在这里抛一个和"网络超时"同类型的异常，客户端自己的错误分支照常走 —— 等价于设备没有网络，
-     * 但不用等系统超时。不伪造任何状态：请求就是失败。
+     * 不去挂某个具体业务节点（那样容易挂错、也容易漏），而是拦 Java 网络的最底层入口
+     * `java.net.Socket` —— 无论 `HttpURLConnection`、okhttp 还是 MIUI 自己的
+     * `XHttpClient`，最终都要构造/连接 Socket。构造与两个 connect 重载都直接抛
+     * IOException，安装器就彻底没有网络了（只影响安装器进程，模块不会碰别的应用）。
      */
     private fun forceOfflineHttp() {
         runCatching {
@@ -124,21 +125,36 @@ object DisableCloudCheckFix : BaseHook() {
                 log("block-network switch is off, keep the installer online")
                 return
             }
-            val cls = findClassIfExists("miui.cloud.net.XHttpClient\$HttpRequest")
-            if (cls == null) {
-                log("XHttpClient\$HttpRequest not found, cannot block network")
-                return
-            }
-            cls.getDeclaredMethod("doHttpRequest").createHook {
-                before {
-                    throw java.net.SocketTimeoutException("blocked by HyperCeiler (network disabled)")
+            var hooked = 0
+            java.net.Socket::class.java.declaredConstructors.forEach { ctor ->
+                runCatching {
+                    ctor.createHook { before { throw blocked() } }
+                    hooked++
                 }
+            }
+            runCatching {
+                java.net.Socket::class.java
+                    .getDeclaredMethod("connect", java.net.SocketAddress::class.java)
+                    .createHook { before { throw blocked() } }
+                hooked++
+            }
+            runCatching {
+                java.net.Socket::class.java
+                    .getDeclaredMethod(
+                        "connect",
+                        java.net.SocketAddress::class.java,
+                        Int::class.javaPrimitiveType
+                    )
+                    .createHook { before { throw blocked() } }
+                hooked++
             }
             // 网络被禁 → 云端校验必然拿不到结果，继续安装按钮需要接管。
             CloudCheckState.failed = true
-            log("installer network blocked (all cloud requests refused)")
+            log("installer network blocked (socket construction/connect refused), hooks=$hooked")
         }.onFailure { log("forceOfflineHttp failed: ${it.message}") }
     }
+
+    private fun blocked() = java.io.IOException("network disabled by HyperCeiler")
 
     /** 把对象里有意义的字段读出来（只读叶子字段，不整个序列化） */
     private fun describe(obj: Any?): String {
