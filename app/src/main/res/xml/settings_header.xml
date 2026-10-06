@@ -2,6 +2,13 @@
 <preference-headers xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- 最新更改：最近 12 个版本新增/改动的功能 -->
+    <header
+        android:icon="@drawable/ic_default"
+        android:id="@+id/recent_changes"
+        android:title="@string/recent_changes"
+        android:fragment="com.sevtinge.hyperceiler.hooker.RecentChangesFragment" />
+
     <header
         android:icon="@drawable/ic_default"
         android:id="@+id/system_framework"

@@ -18,6 +18,7 @@
   ~ Copyright (C) 2023-2026 HyperCeiler Contributions
   --><resources>
     <!--Xposed 模块简介-->
+    <string name="recent_changes">最新更改</string>
     <string name="new_permission_wifi_state_desc">用于xxx</string>
     <string name="new_permission_location_desc">用于提供经纬度等服务</string>
     <string name="new_cta_agree_desc">在使用过程中，为了为您提供更多功能，我们可能会向您申请 Root/Su 权限。您可随时前往权限管理调整所有权限的授权情况，Root 权限请前往您的 Root 管理器进行管理.</string>

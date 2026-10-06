@@ -53,6 +53,7 @@
     <string name="security_center" translatable="false">Security Center</string>
     <!--Introduction to Xposed Modules-->
     <string name="description_hyperos" translatable="false">Make HyperOS Great Again!</string>
+    <string name="recent_changes">Latest changes</string>
     <string name="new_permission_wifi_state_desc">Add and delete files on device\'s internal storage</string>
     <string name="new_permission_location_desc">Used to provide services such as latitude and longitude</string>
     <string name="new_cta_agree_desc">During usage, in order to provide you with more features, we may apply for root permission from you. You can go to Permission Management at any time to adjust the authorization status of all permissions, and please go to your root manager to grant root permissions.</string>
