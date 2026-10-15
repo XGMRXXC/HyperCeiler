@@ -33,6 +33,7 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import fan.appcompat.app.AlertDialog;
 import androidx.preference.Preference;
 import androidx.preference.SwitchPreference;
 
@@ -51,6 +52,7 @@ import com.sevtinge.hyperceiler.sub.ScopePickerActivity;
 import com.sevtinge.hyperceiler.ui.HomePageActivity;
 import com.sevtinge.hyperceiler.ui.LauncherActivity;
 import com.sevtinge.hyperceiler.ui.SplashActivity;
+import com.sevtinge.hyperceiler.utils.UpdateChecker;
 import com.sevtinge.hyperceiler.utils.DialogHelper;
 import com.sevtinge.hyperceiler.utils.HotReloadDialogHelper;
 import com.sevtinge.hyperceiler.utils.HotReloadManager;
@@ -144,6 +146,30 @@ public class SettingsFragment extends BasePreferenceFragment
         mScopePreference = findPreference("prefs_key_settings_scope");
         mHotReloadPreference = findPreference("prefs_key_settings_hot_reload");
         updateHotReloadPreferenceVisibility();
+
+        Preference checkUpdate = findPreference("prefs_key_settings_check_update");
+        if (checkUpdate != null) {
+            checkUpdate.setPersistent(false);
+            checkUpdate.setOnPreferenceClickListener(p -> {
+                checkUpdate.setSummary(R.string.settings_check_update_checking);
+                UpdateChecker.check(result -> {
+                    if (!isAdded()) {
+                        return;
+                    }
+                    if (!result.ok) {
+                        checkUpdate.setSummary(R.string.settings_check_update_failed);
+                        showDialog(getString(R.string.settings_check_update),
+                            getString(R.string.settings_check_update_failed) + "\n" + result.error);
+                    } else if (result.hasUpdate) {
+                        checkUpdate.setSummary(getString(R.string.settings_check_update_found, result.tag));
+                        showUpdateDialog(result);
+                    } else {
+                        checkUpdate.setSummary(R.string.settings_check_update_latest);
+                    }
+                });
+                return true;
+            });
+        }
 
         if (mHideAppIcon != null) {
             mHideAppIcon.setPersistent(false);
@@ -522,6 +548,25 @@ public class SettingsFragment extends BasePreferenceFragment
             .setTitle(com.sevtinge.hyperceiler.core.R.string.rest_scope_authorize_title)
             .setMessage(getString(com.sevtinge.hyperceiler.core.R.string.rest_scope_authorize_notice, scopeList))
             .setPositiveButton(android.R.string.ok, (dialog, which) -> onConfirmed.run())
+            .show();
+    }
+
+    private void showUpdateDialog(UpdateChecker.Result result) {
+        String message = getString(R.string.settings_check_update_found, result.tag);
+        if (result.name != null && !result.name.isEmpty() && !result.name.equals(result.tag)) {
+            message = message + "\n" + result.name;
+        }
+        new AlertDialog.Builder(requireContext())
+            .setTitle(R.string.settings_check_update_dialog_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.settings_check_update_now, (dialog, which) -> {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(result.url)));
+                } catch (Throwable ignored) {
+                    // 没有浏览器就什么都不做
+                }
+            })
+            .setNegativeButton(R.string.settings_check_update_later, null)
             .show();
     }
 

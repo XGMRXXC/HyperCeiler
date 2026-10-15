@@ -187,4 +187,14 @@
 
     <string name="tos_update_title">《用户协议》与《隐私政策》</string>
     <string name="tos_update_desc">我们于近期更新了《用户协议》和/或《隐私政策》，请及时查看。\n继续使用 HyperCeiler 即代表您同意我们的<annotation key="protocol">《用户协议》</annotation> 及<annotation key="privacy">《隐私政策》</annotation>。</string>
+    <string name="settings_update_title">更新</string>
+    <string name="settings_check_update">检查更新</string>
+    <string name="settings_check_update_desc">从本 fork 的 GitHub Releases 检查新版本</string>
+    <string name="settings_check_update_checking">正在检查…</string>
+    <string name="settings_check_update_latest">已是最新版本</string>
+    <string name="settings_check_update_failed">检查失败，请检查网络后重试</string>
+    <string name="settings_check_update_found">发现新版本 %1$s</string>
+    <string name="settings_check_update_dialog_title">发现新版本</string>
+    <string name="settings_check_update_now">前往下载</string>
+    <string name="settings_check_update_later">稍后</string>
 </resources>

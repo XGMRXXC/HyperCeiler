@@ -118,4 +118,12 @@
 
     </PreferenceCategory>
 
+
+    <PreferenceCategory android:title="@string/settings_update_title">
+        <Preference
+            android:key="prefs_key_settings_check_update"
+            android:persistent="false"
+            android:summary="@string/settings_check_update_desc"
+            android:title="@string/settings_check_update" />
+    </PreferenceCategory>
 </PreferenceScreen>
